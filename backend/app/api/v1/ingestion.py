@@ -4,6 +4,7 @@ from app.schemas.ingestion import (
     IngestionResponse,
     TextIngestionRequest,
 )
+from app.services.ingestion_service import IngestionService
 
 
 router = APIRouter(
@@ -19,8 +20,13 @@ router = APIRouter(
 async def ingest_text(
     request: TextIngestionRequest,
 ) -> IngestionResponse:
+    normalized = IngestionService.process_text(
+        input_type=request.input_type,
+        content=request.content,
+    )
+
     return IngestionResponse(
         message="Text received successfully.",
-        input_type=request.input_type,
-        character_count=len(request.content),
+        input_type=normalized.input_type,
+        character_count=normalized.character_count,
     )
