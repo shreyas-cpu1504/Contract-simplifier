@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
@@ -295,7 +295,7 @@ class ClauseAnalysisService:
         r"(?:INR|USD|EUR|GBP|JPY|AUD|CAD)\s*"
         r"(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?"
         r"|"
-        r"(?:Rs\.?|₹|\$|€|£|¥)\s*"
+        r"(?:Rs\.?|?|\$|�|�|�)\s*"
         r"(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?"
         r"|"
         r"\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*"
@@ -1236,11 +1236,11 @@ class ClauseAnalysisService:
             r"\bJPY\b",
             r"\bAUD\b",
             r"\bCAD\b",
-            r"₹",
+            r"?",
             r"\$",
-            r"€",
-            r"£",
-            r"¥",
+            r"�",
+            r"�",
+            r"�",
             r"\brupees?\b",
             r"\bdollars?\b",
             r"\beuros?\b",
