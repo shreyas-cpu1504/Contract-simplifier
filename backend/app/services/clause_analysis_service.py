@@ -291,16 +291,12 @@ class ClauseAnalysisService:
     )
 
     MONEY_PATTERN = (
-        r"(?:"
-        r"(?:INR|USD|EUR|GBP|JPY|AUD|CAD)\s*"
+        r"(?:(?:INR|USD|EUR|GBP|JPY|AUD|CAD)\s*"
         r"(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?"
-        r"|"
-        r"(?:Rs\.?|?|\$|�|�|�)\s*"
+        r"|(?:Rs\.?|\$)\s*"
         r"(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?"
-        r"|"
-        r"\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*"
-        r"(?:rupees|dollars|euros|pounds|yen)\b"
-        r")"
+        r"|\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*"
+        r"(?:rupees|dollars|euros|pounds|yen)\b)"
     )
 
     PERCENT_PATTERN = r"\b\d+(?:\.\d+)?\s*%"
@@ -720,9 +716,16 @@ class ClauseAnalysisService:
                 "compensation",
                 "bonus",
                 "commission",
-                "pay",
                 "remuneration",
                 "stipend",
+                "payroll",
+                "gross pay",
+                "net pay",
+                "base pay",
+                "base salary",
+                "annual salary",
+                "monthly salary",
+                "hourly wage",
             ],
         )
 
@@ -1009,11 +1012,28 @@ class ClauseAnalysisService:
 
             lower = sentence.lower()
 
-            if any(
-                keyword.lower() in lower
-                for keyword in keywords
-            ):
-                found.append(sentence)
+            for keyword in keywords:
+                keyword_lower = keyword.lower().strip()
+
+                if not keyword_lower:
+                    continue
+
+                # Multi-word phrases can safely use substring matching.
+                if " " in keyword_lower:
+                    matched = keyword_lower in lower
+                else:
+                    # Single words require word boundaries so that
+                    # "pay" does not match "repayment", etc.
+                    pattern = (
+                        r"(?<!\w)"
+                        + re.escape(keyword_lower)
+                        + r"(?!\w)"
+                    )
+                    matched = re.search(pattern, lower) is not None
+
+                if matched:
+                    found.append(sentence)
+                    break
 
         return cls._unique(found)
 
