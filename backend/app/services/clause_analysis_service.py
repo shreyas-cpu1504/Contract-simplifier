@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from app.services.clause_classifier_service import ClauseClassifierService
+
 
 @dataclass
 class ClauseAnalysis:
@@ -328,6 +330,7 @@ class ClauseAnalysisService:
 
     @classmethod
     def analyze_clause(cls, clause) -> ClauseAnalysis:
+        clause = ClauseClassifierService.classify(clause)
         text = cls._clean(getattr(clause, "text", "") or "")
 
         result = ClauseAnalysis(
@@ -1857,3 +1860,5 @@ class ClauseAnalysisService:
             cls.analyze_clause(clause)
             for clause in clauses
         ]
+
+
