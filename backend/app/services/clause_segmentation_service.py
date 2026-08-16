@@ -20,6 +20,16 @@ class ClauseSegmentationService:
             normalized_text
         )
 
+        # If the document has no paragraph/numbered structure and
+        # everything arrived as one block, fall back to sentence-level
+        # segmentation. This is useful for extracted text from PDFs,
+        # DOCX files, OCR, and simple text input where line breaks
+        # may have been lost.
+        if len(blocks) == 1:
+            blocks = ClauseSegmentationService._split_into_sentences(
+                blocks[0]
+            )
+
         clauses = []
 
         current_sections = {}
@@ -92,6 +102,26 @@ class ClauseSegmentationService:
             block.strip()
             for block in blocks
             if block.strip()
+        ]
+
+    @staticmethod
+    def _split_into_sentences(text: str) -> list[str]:
+        """
+        Split a flat block of contract text into sentence-level units.
+
+        This is a fallback only. Structured paragraphs and numbered
+        clauses are handled before reaching this method.
+        """
+
+        sentences = re.split(
+            r"(?<=[.!?])\s+(?=[A-Z])",
+            text.strip(),
+        )
+
+        return [
+            sentence.strip()
+            for sentence in sentences
+            if sentence.strip()
         ]
 
     @staticmethod
