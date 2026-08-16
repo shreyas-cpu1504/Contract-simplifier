@@ -148,6 +148,24 @@ def _load_clauses(file_id: str):
 
 
 @router.get(
+    "/{file_id}/relationships",
+    response_model=dict,
+)
+def get_clause_relationships(file_id: str):
+    clauses = _load_clauses(file_id)
+
+    relationships = ClauseRelationshipService.find_relationships(
+        clauses
+    )
+
+    return {
+        "file_id": file_id,
+        "relationship_count": len(relationships),
+        "relationships": relationships,
+    }
+
+
+@router.get(
     "/{file_id}",
     response_model=ClauseSegmentationResponse,
 )
