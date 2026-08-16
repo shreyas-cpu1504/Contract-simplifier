@@ -1,6 +1,9 @@
-from fastapi import APIRouter, HTTPException
+﻿from fastapi import APIRouter, HTTPException
 
 from app.schemas.clause import ClauseSegmentationResponse
+from app.schemas.clause_analysis import ClauseAnalysisResponse
+from app.schemas.contract_summary import ContractSummary
+
 from app.services.clause_classifier_service import (
     ClauseClassifierService,
 )
@@ -9,6 +12,12 @@ from app.services.clause_segmentation_service import (
 )
 from app.services.clause_storage_service import (
     ClauseStorageService,
+)
+from app.services.clause_analysis_service import (
+    ClauseAnalysisService,
+)
+from app.services.contract_summary_service import (
+    ContractSummaryService,
 )
 from app.services.file_ingestion_service import (
     FileIngestionService,
@@ -21,14 +30,7 @@ router = APIRouter(
 )
 
 
-@router.get(
-    "/{file_id}",
-    response_model=ClauseSegmentationResponse,
-)
-async def get_clauses(
-    file_id: str,
-) -> ClauseSegmentationResponse:
-
+def _load_clauses(file_id: str):
     extracted_path = (
         FileIngestionService.EXTRACTED_DIR
         / f"{file_id}.txt"
@@ -40,68 +42,103 @@ async def get_clauses(
             detail="Extracted document not found.",
         )
 
-    # Try loading already processed clauses.
-    existing_clauses = (
-        ClauseStorageService.load_clauses(file_id)
-    )
-
-    if existing_clauses:
-
-        # Older stored clauses may not have classification.
-        if any(
-            clause.clause_type is None
-            for clause in existing_clauses
-        ):
-            classified_clauses = (
-                ClauseClassifierService.classify_many(
-                    existing_clauses
-                )
-            )
-
-            ClauseStorageService.save_clauses(
-                file_id=file_id,
-                clauses=classified_clauses,
-            )
-
-            existing_clauses = classified_clauses
-
-        return ClauseSegmentationResponse(
-            file_id=file_id,
-            clause_count=len(existing_clauses),
-            clauses=existing_clauses,
-        )
-
-    # Read extracted text.
-    text = extracted_path.read_text(
-        encoding="utf-8",
-    )
-
-    # Segment document into clauses.
-    clauses = ClauseSegmentationService.segment(
-        text
+    clauses = ClauseStorageService.load_clauses(
+        file_id
     )
 
     if not clauses:
-        raise HTTPException(
-            status_code=400,
-            detail="No clauses could be detected.",
+        text = extracted_path.read_text(
+            encoding="utf-8",
         )
 
-    # Classify every clause.
-    classified_clauses = (
-        ClauseClassifierService.classify_many(
+        clauses = ClauseSegmentationService.segment(
+            text
+        )
+
+        if not clauses:
+            raise HTTPException(
+                status_code=400,
+                detail="No clauses could be detected.",
+            )
+
+        clauses = ClauseClassifierService.classify_many(
             clauses
         )
-    )
 
-    # Store classified clauses.
-    ClauseStorageService.save_clauses(
-        file_id=file_id,
-        clauses=classified_clauses,
-    )
+        ClauseStorageService.save_clauses(
+            file_id=file_id,
+            clauses=clauses,
+        )
+
+    elif any(
+        clause.clause_type is None
+        for clause in clauses
+    ):
+        clauses = ClauseClassifierService.classify_many(
+            clauses
+        )
+
+        ClauseStorageService.save_clauses(
+            file_id=file_id,
+            clauses=clauses,
+        )
+
+    return clauses
+
+
+@router.get(
+    "/{file_id}",
+    response_model=ClauseSegmentationResponse,
+)
+async def get_clauses(
+    file_id: str,
+) -> ClauseSegmentationResponse:
+
+    clauses = _load_clauses(file_id)
 
     return ClauseSegmentationResponse(
         file_id=file_id,
-        clause_count=len(classified_clauses),
-        clauses=classified_clauses,
+        clause_count=len(clauses),
+        clauses=clauses,
+    )
+
+
+@router.get(
+    "/{file_id}/analysis",
+    response_model=ClauseAnalysisResponse,
+)
+async def get_clause_analysis(
+    file_id: str,
+) -> ClauseAnalysisResponse:
+
+    clauses = _load_clauses(file_id)
+
+    analyses = ClauseAnalysisService.analyze_many(
+        clauses
+    )
+
+    return ClauseAnalysisResponse(
+        file_id=file_id,
+        analysis_count=len(analyses),
+        analyses=analyses,
+    )
+
+
+@router.get(
+    "/{file_id}/summary",
+    response_model=ContractSummary,
+)
+async def get_contract_summary(
+    file_id: str,
+) -> ContractSummary:
+
+    clauses = _load_clauses(file_id)
+
+    analyses = ClauseAnalysisService.analyze_many(
+        clauses
+    )
+
+    return ContractSummaryService.generate(
+        file_id=file_id,
+        analyses=analyses,
     )
