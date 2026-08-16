@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.schemas.clause import ClauseSegmentationResponse
 from app.schemas.clause_analysis import ClauseAnalysis, ClauseAnalysisResponse
+from app.schemas.clause_relationship import ClauseRelationshipResponse
 from app.schemas.contract_summary import ContractSummary
 
 from app.services.clause_classifier_service import (
@@ -33,6 +34,17 @@ router = APIRouter(
     prefix="/clauses",
     tags=["Clauses"],
 )
+
+
+def _relationship_to_schema(relationship):
+    return {
+        "source_clause_id": relationship.source_clause_id,
+        "target_clause_id": relationship.target_clause_id,
+        "relationship_type": relationship.relationship_type,
+        "evidence": relationship.evidence,
+        "confidence": relationship.confidence,
+        "metadata": relationship.metadata,
+    }
 
 
 def _analysis_to_schema(analysis) -> ClauseAnalysis:
@@ -152,7 +164,7 @@ def _load_clauses(file_id: str):
 
 @router.get(
     "/{file_id}/relationships",
-    response_model=dict,
+    response_model=ClauseRelationshipResponse,
 )
 def get_clause_relationships(file_id: str):
     clauses = _load_clauses(file_id)
@@ -161,11 +173,14 @@ def get_clause_relationships(file_id: str):
         clauses
     )
 
-    return {
-        "file_id": file_id,
-        "relationship_count": len(relationships),
-        "relationships": relationships,
-    }
+    return ClauseRelationshipResponse(
+        file_id=file_id,
+        relationship_count=len(relationships),
+        relationships=[
+            _relationship_to_schema(relationship)
+            for relationship in relationships
+        ],
+    )
 
 
 @router.get(
