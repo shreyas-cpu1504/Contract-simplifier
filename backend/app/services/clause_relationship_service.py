@@ -139,7 +139,7 @@ class ClauseRelationshipService:
 
             for reference in references:
                 target_id = cls._resolve_reference(
-                    reference,
+                    reference["reference"],
                     normalized,
                     source_id,
                 )
@@ -342,7 +342,7 @@ class ClauseRelationshipService:
                 continue
 
             if (
-                clause["clause_number"]
+                str(clause["clause_number"])
                 .strip()
                 .casefold()
                 == normalized_reference
@@ -362,7 +362,7 @@ class ClauseRelationshipService:
                     continue
 
                 if (
-                    clause["clause_number"]
+                    str(clause["clause_number"])
                     .strip()
                     .casefold()
                     == number.casefold()
