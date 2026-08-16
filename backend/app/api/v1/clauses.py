@@ -18,6 +18,9 @@ from app.services.clause_storage_service import (
 from app.services.clause_analysis_service import (
     ClauseAnalysisService,
 )
+from app.services.clause_relationship_service import (
+    ClauseRelationshipService,
+)
 from app.services.contract_summary_service import (
     ContractSummaryService,
 )
@@ -154,7 +157,7 @@ def _load_clauses(file_id: str):
 def get_clause_relationships(file_id: str):
     clauses = _load_clauses(file_id)
 
-    relationships = ClauseRelationshipService.find_relationships(
+    relationships = ClauseRelationshipService.analyze_relationships(
         clauses
     )
 
