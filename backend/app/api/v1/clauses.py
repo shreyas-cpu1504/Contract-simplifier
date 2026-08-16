@@ -1,7 +1,9 @@
-﻿from fastapi import APIRouter, HTTPException
+from dataclasses import asdict
+
+from fastapi import APIRouter, HTTPException
 
 from app.schemas.clause import ClauseSegmentationResponse
-from app.schemas.clause_analysis import ClauseAnalysisResponse
+from app.schemas.clause_analysis import ClauseAnalysis, ClauseAnalysisResponse
 from app.schemas.contract_summary import ContractSummary
 
 from app.services.clause_classifier_service import (
@@ -28,6 +30,65 @@ router = APIRouter(
     prefix="/clauses",
     tags=["Clauses"],
 )
+
+
+def _analysis_to_schema(analysis) -> ClauseAnalysis:
+    data = asdict(analysis)
+
+    return ClauseAnalysis(
+        clause_id=data["clause_id"],
+        clause_number=data["clause_number"],
+        clause_type=data["clause_type"],
+        meaning=data["meaning"],
+
+        # Service -> API schema mappings
+        entities=data["parties"],
+        persons=data["persons"],
+        organizations=data["organizations"],
+        authorities=data["authorities"],
+        jurisdictions=data["jurisdiction"],
+
+        obligations=data["obligations"],
+        rights=data["rights"],
+        permissions=data["permissions"],
+        prohibitions=data["prohibitions"],
+        duties=data["duties"],
+
+        conditions=data["conditions"],
+        exceptions=data["exceptions"],
+        triggers=data["triggers"],
+        consequences=data["consequences"],
+
+        dates=data["dates"],
+        deadlines=data["deadlines"],
+        durations=data["durations"],
+
+        monetary_terms=data["monetary_terms"],
+        percentages=data["percentages"],
+        quantities=data["quantities"],
+
+        laws=data["laws"],
+        regulations=data["regulations"],
+        sections=data["sections"],
+        articles=data["articles"],
+        case_references=data["case_references"],
+
+        employment_terms=data["employment_terms"],
+        financial_terms=data["compensation_terms"],
+        loan_terms=data["loan_terms"],
+        property_terms=data["property_terms"],
+        intellectual_property_terms=data["intellectual_property_terms"],
+        privacy_terms=data["privacy_terms"],
+        dispute_resolution_terms=data["dispute_terms"],
+        confidentiality_terms=data["confidentiality_terms"],
+
+        risk_level=data["risk_level"],
+        risk_score=data["risk_score"],
+        risk_reasons=data["risk_reasons"],
+        user_impact=data["user_impact"],
+        recommendations=data["recommendations"],
+    )
+
 
 
 def _load_clauses(file_id: str):
@@ -113,14 +174,19 @@ async def get_clause_analysis(
 
     clauses = _load_clauses(file_id)
 
-    analyses = ClauseAnalysisService.analyze_many(
+    analyses = ClauseAnalysisService.analyze_clauses(
         clauses
     )
 
+    schema_analyses = [
+        _analysis_to_schema(analysis)
+        for analysis in analyses
+    ]
+
     return ClauseAnalysisResponse(
         file_id=file_id,
-        analysis_count=len(analyses),
-        analyses=analyses,
+        analysis_count=len(schema_analyses),
+        analyses=schema_analyses,
     )
 
 
@@ -134,7 +200,7 @@ async def get_contract_summary(
 
     clauses = _load_clauses(file_id)
 
-    analyses = ClauseAnalysisService.analyze_many(
+    analyses = ClauseAnalysisService.analyze_clauses(
         clauses
     )
 

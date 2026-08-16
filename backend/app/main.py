@@ -1,6 +1,9 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI
 
-from app.api.v1.router import router as api_router
+from app.api.v1.ingestion import router as ingestion_router
+from app.api.v1.file_ingestion import router as file_ingestion_router
+from app.api.v1.clauses import router as clauses_router
+
 from app.core.config import get_settings
 from app.schemas.health import HealthResponse
 
@@ -28,6 +31,16 @@ async def health_check() -> HealthResponse:
 
 
 app.include_router(
-    api_router,
+    ingestion_router,
+    prefix=settings.api_prefix,
+)
+
+app.include_router(
+    file_ingestion_router,
+    prefix=settings.api_prefix,
+)
+
+app.include_router(
+    clauses_router,
     prefix=settings.api_prefix,
 )
