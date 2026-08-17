@@ -3,10 +3,10 @@ from uuid import uuid4
 
 from fastapi import UploadFile
 
+from app.core.config import get_settings
+
 
 class FileIngestionService:
-    MAX_FILE_SIZE = 10 * 1024 * 1024
-
     ALLOWED_EXTENSIONS = {
         ".txt",
         ".pdf",
@@ -42,8 +42,13 @@ class FileIngestionService:
         if not content:
             raise ValueError("Uploaded file is empty.")
 
-        if len(content) > FileIngestionService.MAX_FILE_SIZE:
-            raise ValueError("File size exceeds the 10 MB limit.")
+        settings = get_settings()
+        max_file_size = settings.max_upload_size_mb * 1024 * 1024
+
+        if len(content) > max_file_size:
+            raise ValueError(
+                f"File size exceeds the {settings.max_upload_size_mb} MB limit."
+            )
 
         file_id = str(uuid4())
 
