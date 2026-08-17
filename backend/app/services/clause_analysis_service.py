@@ -1056,10 +1056,69 @@ class ClauseAnalysisService:
                         sentence,
                         re.IGNORECASE,
                     ):
-                        found.append(sentence)
+                        if sentence.strip().endswith(":"):
+                            continue
+
+                        found.append(sentence.strip())
                         break
+
                 except re.error:
                     continue
+
+        lines = [
+            line.strip()
+            for line in text.replace(
+                "\r\n",
+                "\n",
+            ).replace(
+                "\r",
+                "\n",
+            ).split("\n")
+        ]
+
+        for index, line in enumerate(lines):
+
+            if not line:
+                continue
+
+            if not line.endswith(":"):
+                continue
+
+            heading_matches_pattern = False
+
+            for pattern in patterns:
+                try:
+                    if re.search(
+                        pattern,
+                        line,
+                        re.IGNORECASE,
+                    ):
+                        heading_matches_pattern = True
+                        break
+
+                except re.error:
+                    continue
+
+            if not heading_matches_pattern:
+                continue
+
+            for next_line in lines[index + 1:]:
+
+                if not next_line:
+                    break
+
+                bullet_match = re.match(
+                    r"^(?:[-*•]|\(?[a-zA-Z0-9]+\)|\d+[.)])\s+(.+)$",
+                    next_line,
+                )
+
+                if not bullet_match:
+                    break
+
+                bullet_text = bullet_match.group(1).strip()
+
+                if bullet_text:
+                    found.append(bullet_text)
 
         return cls._unique(found)
 
