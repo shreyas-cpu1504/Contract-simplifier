@@ -64,6 +64,11 @@ class ClauseClassifierService:
             "data protection",
             "privacy",
         ],
+        "DEFINITION": [
+            "means",
+            "defined as",
+            "refers to",
+        ],
     }
 
     @classmethod
@@ -78,6 +83,13 @@ class ClauseClassifierService:
                 ],
             )
         ).lower()
+
+        # Strong rule for definitions:
+        # "Agreement" means ...
+        if re.search(r'"[^"]+"\s+means\b', clause.text):
+            return clause.model_copy(
+                update={"clause_type": "DEFINITION"}
+            )
 
         scores = {}
 
