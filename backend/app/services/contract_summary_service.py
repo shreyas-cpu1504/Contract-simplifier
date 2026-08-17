@@ -42,11 +42,12 @@ class ContractSummaryService:
             analyses
         )
 
+        # Include HIGH and MEDIUM clauses as priority clauses.
         priority_clauses = [
             analysis.clause_number
             for analysis in analyses
             if analysis.clause_number
-            and analysis.risk_level == "HIGH"
+            and analysis.risk_level in {"HIGH", "MEDIUM"}
         ]
 
         deadlines = cls._unique(
@@ -67,10 +68,14 @@ class ContractSummaryService:
             for value in analysis.obligations
         )
 
+        # Rights may be represented by either explicit rights
+        # or permissions in the clause analysis.
         key_rights = cls._unique(
             value
             for analysis in analyses
-            for value in analysis.rights
+            for value in (
+                analysis.rights + analysis.permissions
+            )
         )
 
         summary_points = cls._generate_summary_points(
@@ -80,6 +85,7 @@ class ContractSummaryService:
             high=high,
             medium=medium,
             low=low,
+            priority_clauses=priority_clauses,
         )
 
         return ContractSummary(
@@ -162,6 +168,7 @@ class ContractSummaryService:
         high: int,
         medium: int,
         low: int,
+        priority_clauses: list[str],
     ) -> list[str]:
 
         points = []
@@ -182,8 +189,16 @@ class ContractSummaryService:
             )
 
         points.append(
-            f"The overall contract risk score is {overall_risk_score}/100."
+            f"The overall contract risk score is "
+            f"{overall_risk_score}/100."
         )
+
+        if priority_clauses:
+            points.append(
+                "Priority review clauses: "
+                + ", ".join(priority_clauses)
+                + "."
+            )
 
         clause_types = ContractSummaryService._unique(
             analysis.clause_type
@@ -201,7 +216,8 @@ class ContractSummaryService:
 
             points.append(
                 "The contract contains at least one "
-                "high-risk clause that should receive priority review."
+                "high-risk clause that should receive "
+                "priority review."
             )
 
         elif overall_risk == "MEDIUM":
