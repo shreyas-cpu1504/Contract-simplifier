@@ -93,16 +93,31 @@ class ClauseSegmentationService:
 
     @staticmethod
     def _split_into_blocks(text: str) -> list[str]:
-        blocks = re.split(
+        raw_blocks = re.split(
             r"\n\s*\n",
             text,
         )
 
-        return [
-            block.strip()
-            for block in blocks
-            if block.strip()
-        ]
+        blocks = []
+
+        for raw_block in raw_blocks:
+            block = raw_block.strip()
+
+            if not block:
+                continue
+
+            # Bullet/list items belong to the preceding clause.
+            if (
+                re.match(r"^[-*•]\s+", block)
+                and blocks
+            ):
+                blocks[-1] = (
+                    f"{blocks[-1]}\n{block}"
+                )
+            else:
+                blocks.append(block)
+
+        return blocks
 
     @staticmethod
     def _split_into_sentences(text: str) -> list[str]:
