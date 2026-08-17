@@ -17,11 +17,16 @@ class ClauseRelationship:
 
 class ClauseRelationshipService:
     """
-    Detects relationships between clauses without assuming that the
-    document is a specific type of agreement.
+    Detect relationships between clauses using deterministic rules.
 
-    The service is intentionally deterministic at this stage.
-    Later, semantic/LLM analysis can be added without replacing this layer.
+    Supported relationships:
+    - SUBCLAUSE
+    - REFERENCE
+    - EXCEPTION
+    - OVERRIDE
+    - CONDITION
+    - MODIFICATION
+    - DEFINITION
     """
 
     REFERENCE_PATTERNS = [
@@ -35,15 +40,6 @@ class ClauseRelationshipService:
         r"\s+(?:clause|section|article|paragraph)\s+"
         r"([A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*)",
     ]
-
-    REFERENCE_KEYWORDS = (
-        "clause",
-        "section",
-        "article",
-        "paragraph",
-        "subsection",
-        "sub-section",
-    )
 
     EXCEPTION_PATTERNS = (
         "except",
@@ -124,6 +120,7 @@ class ClauseRelationshipService:
         cls,
         clauses: list[Any],
     ) -> list[ClauseRelationship]:
+
         relationships: list[ClauseRelationship] = []
 
         normalized = [
@@ -131,13 +128,55 @@ class ClauseRelationshipService:
             for index, clause in enumerate(clauses, start=1)
         ]
 
+        # ---------------------------------------------------------
+        # 1. Detect structural parent/sub-clause relationships.
+        # ---------------------------------------------------------
         for clause in normalized:
+
+            source_id = clause["clause_id"]
+            clause_number = clause["clause_number"]
+            parent_clause = clause["parent_clause"]
+
+            if not parent_clause:
+                continue
+
+            target_id = cls._find_clause_by_number(
+                parent_clause,
+                normalized,
+                source_id,
+            )
+
+            if target_id:
+
+                relationships.append(
+                    ClauseRelationship(
+                        source_clause_id=source_id,
+                        target_clause_id=target_id,
+                        relationship_type="SUBCLAUSE",
+                        evidence=(
+                            f"Clause {clause_number} is a sub-clause "
+                            f"of clause {parent_clause}."
+                        ),
+                        confidence=1.0,
+                        metadata={
+                            "clause_number": clause_number,
+                            "parent_clause": parent_clause,
+                        },
+                    )
+                )
+
+        # ---------------------------------------------------------
+        # 2. Detect explicit textual references.
+        # ---------------------------------------------------------
+        for clause in normalized:
+
             source_id = clause["clause_id"]
             text = clause["text"]
 
             references = cls._extract_references(text)
 
             for reference in references:
+
                 target_id = cls._resolve_reference(
                     reference["reference"],
                     normalized,
@@ -150,16 +189,26 @@ class ClauseRelationshipService:
                         target_clause_id=target_id,
                         relationship_type="REFERENCE",
                         evidence=reference["evidence"],
-                        confidence=0.95 if target_id else 0.70,
+                        confidence=(
+                            0.95
+                            if target_id
+                            else 0.70
+                        ),
                         metadata={
                             "reference": reference["reference"],
                         },
                     )
                 )
 
+            # -----------------------------------------------------
+            # 3. Exception relationships.
+            # -----------------------------------------------------
             lower = text.casefold()
 
-            if cls._contains_any(lower, cls.EXCEPTION_PATTERNS):
+            if cls._contains_any(
+                lower,
+                cls.EXCEPTION_PATTERNS,
+            ):
                 relationships.append(
                     ClauseRelationship(
                         source_clause_id=source_id,
@@ -173,7 +222,13 @@ class ClauseRelationshipService:
                     )
                 )
 
-            if cls._contains_any(lower, cls.OVERRIDE_PATTERNS):
+            # -----------------------------------------------------
+            # 4. Override relationships.
+            # -----------------------------------------------------
+            if cls._contains_any(
+                lower,
+                cls.OVERRIDE_PATTERNS,
+            ):
                 relationships.append(
                     ClauseRelationship(
                         source_clause_id=source_id,
@@ -187,7 +242,13 @@ class ClauseRelationshipService:
                     )
                 )
 
-            if cls._contains_any(lower, cls.CONDITION_PATTERNS):
+            # -----------------------------------------------------
+            # 5. Condition relationships.
+            # -----------------------------------------------------
+            if cls._contains_any(
+                lower,
+                cls.CONDITION_PATTERNS,
+            ):
                 relationships.append(
                     ClauseRelationship(
                         source_clause_id=source_id,
@@ -201,7 +262,13 @@ class ClauseRelationshipService:
                     )
                 )
 
-            if cls._contains_any(lower, cls.MODIFICATION_PATTERNS):
+            # -----------------------------------------------------
+            # 6. Modification relationships.
+            # -----------------------------------------------------
+            if cls._contains_any(
+                lower,
+                cls.MODIFICATION_PATTERNS,
+            ):
                 relationships.append(
                     ClauseRelationship(
                         source_clause_id=source_id,
@@ -215,7 +282,13 @@ class ClauseRelationshipService:
                     )
                 )
 
-            if cls._contains_any(lower, cls.DEFINITION_PATTERNS):
+            # -----------------------------------------------------
+            # 7. Definition relationships.
+            # -----------------------------------------------------
+            if cls._contains_any(
+                lower,
+                cls.DEFINITION_PATTERNS,
+            ):
                 relationships.append(
                     ClauseRelationship(
                         source_clause_id=source_id,
@@ -232,7 +305,10 @@ class ClauseRelationshipService:
         return cls._deduplicate(relationships)
 
     @classmethod
-    def analyze(cls, clauses: list[Any]) -> list[ClauseRelationship]:
+    def analyze(
+        cls,
+        clauses: list[Any],
+    ) -> list[ClauseRelationship]:
         return cls.analyze_relationships(clauses)
 
     @staticmethod
@@ -242,6 +318,7 @@ class ClauseRelationshipService:
     ) -> dict[str, str]:
 
         if isinstance(clause, dict):
+
             clause_id = str(
                 clause.get(
                     "clause_id",
@@ -263,9 +340,18 @@ class ClauseRelationshipService:
                 )
             )
 
+            parent_clause = clause.get(
+                "parent_clause"
+            )
+
             return {
                 "clause_id": clause_id,
                 "clause_number": number,
+                "parent_clause": (
+                    str(parent_clause)
+                    if parent_clause is not None
+                    else ""
+                ),
                 "text": text.strip(),
             }
 
@@ -285,19 +371,57 @@ class ClauseRelationshipService:
             )
         )
 
-        number = str(
-            getattr(
-                clause,
-                "clause_number",
-                fallback_number,
-            )
+        number = getattr(
+            clause,
+            "clause_number",
+            fallback_number,
+        )
+
+        parent_clause = getattr(
+            clause,
+            "parent_clause",
+            None,
         )
 
         return {
             "clause_id": clause_id,
-            "clause_number": number,
+            "clause_number": str(number),
+            "parent_clause": (
+                str(parent_clause)
+                if parent_clause is not None
+                else ""
+            ),
             "text": text.strip(),
         }
+
+    @staticmethod
+    def _find_clause_by_number(
+        clause_number: str,
+        clauses: list[dict[str, str]],
+        source_clause_id: str,
+    ) -> str | None:
+
+        normalized_number = (
+            str(clause_number)
+            .strip()
+            .casefold()
+        )
+
+        for clause in clauses:
+
+            if clause["clause_id"] == source_clause_id:
+                continue
+
+            current_number = (
+                str(clause["clause_number"])
+                .strip()
+                .casefold()
+            )
+
+            if current_number == normalized_number:
+                return clause["clause_id"]
+
+        return None
 
     @classmethod
     def _extract_references(
@@ -308,12 +432,15 @@ class ClauseRelationshipService:
         found: list[dict[str, str]] = []
 
         for pattern in cls.REFERENCE_PATTERNS:
+
             try:
+
                 for match in re.finditer(
                     pattern,
                     text,
                     re.IGNORECASE,
                 ):
+
                     reference = match.group(1).strip()
 
                     found.append(
@@ -322,6 +449,7 @@ class ClauseRelationshipService:
                             "evidence": match.group(0).strip(),
                         }
                     )
+
             except re.error:
                 continue
 
@@ -335,9 +463,14 @@ class ClauseRelationshipService:
         source_clause_id: str,
     ) -> str | None:
 
-        normalized_reference = reference.strip().casefold()
+        normalized_reference = (
+            reference
+            .strip()
+            .casefold()
+        )
 
         for clause in clauses:
+
             if clause["clause_id"] == source_clause_id:
                 continue
 
@@ -355,9 +488,11 @@ class ClauseRelationshipService:
         )
 
         if numeric_match:
+
             number = numeric_match.group(1)
 
             for clause in clauses:
+
                 if clause["clause_id"] == source_clause_id:
                     continue
 
@@ -391,11 +526,13 @@ class ClauseRelationshipService:
         lower = text.casefold()
 
         for pattern in patterns:
+
             position = lower.find(
                 pattern.casefold()
             )
 
             if position >= 0:
+
                 start = max(
                     0,
                     position - 50,
@@ -420,9 +557,16 @@ class ClauseRelationshipService:
         seen = set()
 
         for value in values:
+
             key = (
-                value.get("reference", "").casefold(),
-                value.get("evidence", "").casefold(),
+                value.get(
+                    "reference",
+                    "",
+                ).casefold(),
+                value.get(
+                    "evidence",
+                    "",
+                ).casefold(),
             )
 
             if key in seen:
@@ -443,6 +587,7 @@ class ClauseRelationshipService:
         seen = set()
 
         for relationship in relationships:
+
             key = (
                 relationship.source_clause_id,
                 relationship.target_clause_id,
