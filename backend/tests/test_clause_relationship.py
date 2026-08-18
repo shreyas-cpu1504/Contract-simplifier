@@ -211,3 +211,108 @@ def test_empty_relationships():
     result = relationships(clauses)
 
     assert isinstance(result, list)
+
+def test_ordinary_word_after_clause_is_not_reference():
+    clauses = [
+        make_clause(
+            "c1",
+            "1",
+            "This clause modifies the payment terms stated in the agreement.",
+        ),
+    ]
+
+    result = relationships(clauses)
+
+    assert not any(
+        r.relationship_type == "REFERENCE"
+        for r in result
+    )
+
+    assert any(
+        r.relationship_type == "MODIFICATION"
+        and r.source_clause_id == "c1"
+        for r in result
+    )
+
+
+def test_clause_number_is_reference():
+    clauses = [
+        make_clause(
+            "c1",
+            "1",
+            "The Customer shall pay the invoice.",
+        ),
+        make_clause(
+            "c2",
+            "2",
+            "The obligation described in Clause 1 shall apply.",
+        ),
+    ]
+
+    result = relationships(clauses)
+
+    assert any(
+        r.relationship_type == "REFERENCE"
+        and r.source_clause_id == "c2"
+        and r.target_clause_id == "c1"
+        for r in result
+    )
+
+
+def test_decimal_clause_number_is_reference():
+    clauses = [
+        make_clause(
+            "c1",
+            "1.2",
+            "The Customer shall provide the required documents.",
+        ),
+        make_clause(
+            "c2",
+            "2",
+            "The requirements in Clause 1.2 shall apply.",
+        ),
+    ]
+
+    result = relationships(clauses)
+
+    assert any(
+        r.relationship_type == "REFERENCE"
+        and r.source_clause_id == "c2"
+        and r.target_clause_id == "c1"
+        for r in result
+    )
+
+
+def test_common_clause_verb_is_not_reference():
+    clauses = [
+        make_clause(
+            "c1",
+            "1",
+            "This clause applies to all customers.",
+        ),
+    ]
+
+    result = relationships(clauses)
+
+    assert not any(
+        r.relationship_type == "REFERENCE"
+        for r in result
+    )
+
+
+def test_common_clause_noun_is_not_reference():
+    clauses = [
+        make_clause(
+            "c1",
+            "1",
+            "This clause provides additional protection.",
+        ),
+    ]
+
+    result = relationships(clauses)
+
+    assert not any(
+        r.relationship_type == "REFERENCE"
+        for r in result
+    )
+

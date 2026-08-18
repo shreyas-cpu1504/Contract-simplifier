@@ -515,6 +515,11 @@ class ClauseRelationshipService:
 
                     reference = match.group(1).strip()
 
+                    if not cls._is_valid_reference_identifier(
+                        reference
+                    ):
+                        continue
+
                     found.append(
                         {
                             "reference": reference,
@@ -529,6 +534,7 @@ class ClauseRelationshipService:
         seen_references = set()
 
         for item in found:
+
             reference = item["reference"].strip().casefold()
 
             if reference in seen_references:
@@ -538,6 +544,61 @@ class ClauseRelationshipService:
             unique.append(item)
 
         return unique
+
+    @staticmethod
+    def _is_valid_reference_identifier(
+        reference: str,
+    ) -> bool:
+        """
+        Validate the identifier captured after a legal-document
+        reference keyword such as Clause, Section, or Article.
+
+        Valid examples:
+        - 1
+        - 1.2
+        - 1.2.3
+        - 3(a)
+        - 3(a)(i)
+        - IV
+        - V.2
+
+        Reject ordinary words such as:
+        - modifies
+        - applies
+        - provides
+        - states
+        """
+
+        value = reference.strip()
+
+        if not value:
+            return False
+
+        # Numeric clause/section identifiers.
+        if re.fullmatch(
+            r"\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*",
+            value,
+        ):
+            return True
+
+        # Roman-numeral style identifiers.
+        if re.fullmatch(
+            r"[IVXLCDM]+(?:\.\d+)?(?:\([A-Za-z0-9]+\))*",
+            value,
+            re.IGNORECASE,
+        ):
+            return True
+
+        # Single alphabetic identifiers are allowed for cases such
+        # as Article A or Appendix A, but ordinary English words are
+        # rejected.
+        if re.fullmatch(
+            r"[A-Za-z](?:\([A-Za-z0-9]+\))*",
+            value,
+        ):
+            return True
+
+        return False
 
     @classmethod
     def _resolve_reference(
