@@ -78,10 +78,13 @@ def _analysis_to_schema(analysis) -> ClauseAnalysis:
         deadlines=data["deadlines"],
         durations=data["durations"],
 
-        monetary_terms=data["monetary_terms"],
+              monetary_terms=data["monetary_terms"],
+        currencies=data["currencies"],
         percentages=data["percentages"],
         quantities=data["quantities"],
-
+        fees=data["fees"],
+        penalties=data["penalties"],
+        taxes=data["taxes"],
         laws=data["laws"],
         regulations=data["regulations"],
         sections=data["sections"],

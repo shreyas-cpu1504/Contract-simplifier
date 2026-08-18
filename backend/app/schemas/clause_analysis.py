@@ -38,8 +38,12 @@ class ClauseAnalysis(BaseModel):
 
     # Money / quantitative information
     monetary_terms: list[str] = Field(default_factory=list)
+    currencies: list[str] = Field(default_factory=list)
     percentages: list[str] = Field(default_factory=list)
     quantities: list[str] = Field(default_factory=list)
+    fees: list[str] = Field(default_factory=list)
+    penalties: list[str] = Field(default_factory=list)
+    taxes: list[str] = Field(default_factory=list)
 
     # Legal references
     laws: list[str] = Field(default_factory=list)
