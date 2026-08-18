@@ -59,7 +59,11 @@ class ContractSummaryService:
         monetary_terms = cls._unique(
             value
             for analysis in analyses
-            for value in analysis.monetary_terms
+            for value in (
+                analysis.monetary_terms
+                + analysis.fees
+                + analysis.penalties
+            )
         )
 
         key_obligations = cls._unique(
