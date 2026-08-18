@@ -25,6 +25,7 @@ class ClauseRelationshipService:
     - EXCEPTION
     - OVERRIDE
     - CONDITION
+    - DEPENDENCY
     - MODIFICATION
     - DEFINITION
     """
@@ -87,14 +88,37 @@ class ClauseRelationshipService:
         "unless ",
     )
 
+    DEPENDENCY_PATTERNS = (
+        "depends on",
+        "dependent on",
+        "subject to completion of",
+        "subject to fulfillment of",
+        "subject to satisfaction of",
+        "after completion of",
+        "after fulfillment of",
+        "after satisfaction of",
+        "following completion of",
+        "following fulfillment of",
+        "following satisfaction of",
+        "upon completion of",
+        "upon fulfillment of",
+        "upon satisfaction of",
+        "only after",
+        "only upon",
+        "provided that",
+    )
+
     MODIFICATION_PATTERNS = (
         "amend",
         "amended",
         "amendment",
+        "amends",
         "modify",
         "modified",
+        "modifies",
         "modification",
         "vary",
+        "varies",
         "varied",
         "variation",
         "replace",
@@ -263,7 +287,55 @@ class ClauseRelationshipService:
                 )
 
             # -----------------------------------------------------
-            # 6. Modification relationships.
+            # 6. Dependency relationships.
+            # -----------------------------------------------------
+            if cls._contains_any(
+                lower,
+                cls.DEPENDENCY_PATTERNS,
+            ):
+                dependency_target_id = None
+
+                # If the dependency statement explicitly references
+                # another clause, resolve that clause as the target.
+                dependency_references = cls._extract_references(
+                    text
+                )
+
+                for dependency_reference in dependency_references:
+                    dependency_target_id = cls._resolve_reference(
+                        dependency_reference["reference"],
+                        normalized,
+                        source_id,
+                    )
+
+                    if dependency_target_id:
+                        break
+
+                relationships.append(
+                    ClauseRelationship(
+                        source_clause_id=source_id,
+                        target_clause_id=dependency_target_id,
+                        relationship_type="DEPENDENCY",
+                        evidence=cls._find_evidence(
+                            text,
+                            cls.DEPENDENCY_PATTERNS,
+                        ),
+                        confidence=(
+                            0.90
+                            if dependency_target_id
+                            else 0.80
+                        ),
+                        metadata={
+                            "dependency_reference": (
+                                dependency_target_id
+                                is not None
+                            )
+                        },
+                    )
+                )
+
+            # -----------------------------------------------------
+            # 7. Modification relationships.
             # -----------------------------------------------------
             if cls._contains_any(
                 lower,

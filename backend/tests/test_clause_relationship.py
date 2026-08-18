@@ -49,7 +49,7 @@ def test_dependency_relationship():
         make_clause(
             "c2",
             "2",
-            "The payment shall occur after the documents are provided."
+            "The payment shall occur after completion of Clause 1."
         ),
     ]
 
