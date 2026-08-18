@@ -48,10 +48,15 @@ class ClauseAnalysis(BaseModel):
     # Legal references
     laws: list[str] = Field(default_factory=list)
     regulations: list[str] = Field(default_factory=list)
+    statutes: list[str] = Field(default_factory=list)
     sections: list[str] = Field(default_factory=list)
     articles: list[str] = Field(default_factory=list)
+    rules: list[str] = Field(default_factory=list)
     case_references: list[str] = Field(default_factory=list)
     citations: list[str] = Field(default_factory=list)
+
+    # Plain-language legal-reference understanding
+    legal_reference_explanations: list[str] = Field(default_factory=list)
 
     # Document-specific information
     notices: list[str] = Field(default_factory=list)

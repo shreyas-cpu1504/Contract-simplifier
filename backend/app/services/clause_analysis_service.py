@@ -304,27 +304,58 @@ class ClauseAnalysisService:
     PERCENT_PATTERN = r"\b\d+(?:\.\d+)?\s*%"
 
     LEGAL_REFERENCE_PATTERNS = {
+        # Specific references:
+        #   Section 10
+        #   Section 10(1)
+        #   Section 10 of the Indian Contract Act, 1872
         "sections": [
-            r"\b(?:section|sec\.?)\s+[A-Za-z0-9().-]+"
+            r"(?i)\b(?:section|sec\.?)\s+[A-Za-z0-9().-]+"
+            r"(?:\s+of\s+(?:the\s+)?[A-Z][A-Za-z0-9,&'(). -]{2,100})?"
         ],
+
+        #   Article 21
+        #   Article 21 of the Constitution of India
         "articles": [
-            r"\b(?:article|art\.?)\s+[A-Za-z0-9().-]+"
+            r"(?i)\b(?:article|art\.?)\s+[A-Za-z0-9().-]+"
+            r"(?:\s+of\s+(?:the\s+)?[A-Z][A-Za-z0-9,&'(). -]{2,100})?"
         ],
+
+        #   Rule 5
+        #   Rule 5 of the relevant rules
         "rules": [
-            r"\b(?:rule|rules)\s+[A-Za-z0-9().-]+"
+            r"(?i)\b(?:rule|rules)\s+[A-Za-z0-9().-]+"
+            r"(?:\s+of\s+(?:the\s+)?[A-Z][A-Za-z0-9,&'(). -]{2,100})?"
         ],
+
+        #   Regulation 12
         "regulations": [
-            r"\b(?:regulation|regulations)\s+[A-Za-z0-9().-]+"
+            r"(?i)\b(?:regulation|regulations)\s+[A-Za-z0-9().-]+"
+            r"(?:\s+of\s+(?:the\s+)?[A-Z][A-Za-z0-9,&'(). -]{2,100})?"
         ],
+
+        # Explicit statute references:
+        #   Statute 15
         "statutes": [
-            r"\b(?:statute|statutes)\s+[A-Za-z0-9().-]+"
+            r"(?i)\b(?:statute|statutes)\s+[A-Za-z0-9().-]+"
+            r"(?:\s+of\s+(?:the\s+)?[A-Z][A-Za-z0-9,&'(). -]{2,100})?"
         ],
+
+        # Named laws / Acts only.
+        #
+        # Examples:
+        #   Indian Contract Act, 1872
+        #   Companies Act, 2013
+        #   Information Technology Act, 2000
+        #
+        # This pattern is intentionally case-sensitive so generic
+        # phrases such as "the law" are not detected.
         "laws": [
-            r"\b(?:law|laws|act|acts)\s+[A-Za-z0-9().,&'() -]{2,80}"
+            r"\b(?:[A-Z][A-Za-z]+\s+){1,8}"
+            r"(?:Act|Acts|Law|Laws)"
+            r"(?:,\s*\d{4})?"
         ],
     }
 
-    # ================================================================
     # Analysis
     # ================================================================
 
@@ -352,8 +383,25 @@ class ClauseAnalysisService:
         result.authorities = cls._extract_authorities(text)
 
         # Legal effects
+        obligation_exclusions = [
+            *cls.PROHIBITION_PATTERNS,
+
+            # Legal-effect statements containing "shall" are not
+            # contractual obligations of a party.
+            r"\bshall\s+be\s+governed\s+by\b",
+            r"\bgoverned\s+by\b",
+            r"\bshall\s+have\s+.*\bjurisdiction\b",
+            r"\bexclusive\s+jurisdiction\b",
+            r"\bjurisdiction\b",
+            r"\bshall\s+be\s+resolved\s+by\b",
+            r"\bresolved\s+by\s+arbitration\b",
+            r"\barbitration\b",
+        ]
+
         result.obligations = cls._extract_by_patterns(
-            text, cls.OBLIGATION_PATTERNS
+            text,
+            cls.OBLIGATION_PATTERNS,
+            exclude_patterns=obligation_exclusions,
         )
         result.duties = list(result.obligations)
 
@@ -595,15 +643,7 @@ class ClauseAnalysisService:
             ],
         )
 
-        result.jurisdiction = cls._keyword_sentences(
-            text,
-            [
-                "jurisdiction",
-                "court",
-                "venue",
-                "territorial jurisdiction",
-            ],
-        )
+        result.jurisdiction = cls._extract_jurisdiction(text)
 
         result.governing_law = cls._keyword_sentences(
             text,
@@ -623,6 +663,59 @@ class ClauseAnalysisService:
                 "arbitral",
             ],
         )
+
+        # ------------------------------------------------------------
+        # Legal-effect classification cleanup
+        # ------------------------------------------------------------
+        # Pattern-based extraction intentionally starts broad. Refine
+        # classifications here where common legal phrases such as
+        # "shall be governed by" or "shall be subject to" describe
+        # legal applicability rather than a party's actual duty.
+
+        non_obligation_phrases = (
+            "shall be governed by",
+            "shall be subject to",
+            "shall be construed",
+            "shall be interpreted",
+            "shall apply",
+            "shall form part of",
+            "must be governed by",
+            "must be subject to",
+            "must be construed",
+            "must be interpreted",
+        )
+
+        result.obligations = [
+            sentence
+            for sentence in result.obligations
+            if not any(
+                phrase in sentence.casefold()
+                for phrase in non_obligation_phrases
+            )
+        ]
+
+        result.duties = list(result.obligations)
+
+        # "Subject to" is often extracted as a generic condition, but
+        # dispute-resolution and governing-law statements should remain
+        # in their more specific legal categories.
+        non_condition_phrases = (
+            "shall be subject to",
+            "must be subject to",
+            "subject to the applicable law",
+            "subject to applicable law",
+            "subject to the laws of",
+            "subject to the jurisdiction",
+        )
+
+        result.conditions = [
+            sentence
+            for sentence in result.conditions
+            if not any(
+                phrase in sentence.casefold()
+                for phrase in non_condition_phrases
+            )
+        ]
 
         result.remedies = cls._keyword_sentences(
             text,
@@ -921,6 +1014,11 @@ class ClauseAnalysisService:
 
         # Interpretation
         result.meaning = cls._generate_meaning(result, text)
+
+        result.legal_reference_explanations = (
+            cls._generate_legal_reference_explanations(result)
+        )
+
         result.user_impact = cls._generate_user_impact(result)
         result.recommendations = cls._generate_recommendations(result)
 
@@ -959,9 +1057,33 @@ class ClauseAnalysisService:
 
     @classmethod
     def _sentences(cls, text: str) -> list[str]:
-        parts = re.split(
-            r"(?<=[.!?;])\s+|\n+",
+        """
+        Split contract text into substantive sentences.
+
+        Contract documents frequently contain line breaks in the middle
+        of a sentence because of PDF/DOCX formatting. Therefore, a
+        newline alone must not automatically create a new sentence.
+
+        Sentence boundaries are primarily determined by terminal
+        punctuation. Newlines are treated as whitespace unless the
+        surrounding text clearly indicates a new paragraph/heading.
+        """
+
+        normalized = re.sub(
+            r"[ \t]*\n[ \t]*",
+            " ",
             text,
+        )
+
+        normalized = re.sub(
+            r"\s+",
+            " ",
+            normalized,
+        ).strip()
+
+        parts = re.split(
+            r"(?<=[.!?;])\s+",
+            normalized,
         )
 
         return [
@@ -1045,10 +1167,38 @@ class ClauseAnalysisService:
         cls,
         text: str,
         patterns: list[str],
+        exclude_patterns: list[str] | None = None,
     ) -> list[str]:
+        """
+        Extract complete sentences matching at least one pattern.
+
+        Optional exclude_patterns allow a legal effect to take precedence
+        over a broader pattern. For example, "shall not" matches the broad
+        obligation pattern "shall", but the sentence should be classified
+        as a prohibition rather than an obligation.
+        """
         found = []
 
+        exclude_patterns = exclude_patterns or []
+
         for sentence in cls._sentences(text):
+            excluded = False
+
+            for pattern in exclude_patterns:
+                try:
+                    if re.search(
+                        pattern,
+                        sentence,
+                        re.IGNORECASE,
+                    ):
+                        excluded = True
+                        break
+                except re.error:
+                    continue
+
+            if excluded:
+                continue
+
             for pattern in patterns:
                 try:
                     if re.search(
@@ -1259,6 +1409,33 @@ class ClauseAnalysisService:
 
             cleaned.append(value)
 
+        # Final safety filter for generic contractual party labels.
+        generic_only = {
+            "party",
+            "parties",
+            "client",
+            "company",
+            "customer",
+            "employer",
+            "employee",
+            "borrower",
+            "lender",
+            "seller",
+            "buyer",
+            "supplier",
+            "vendor",
+            "contractor",
+            "consultant",
+            "licensor",
+            "licensee",
+        }
+
+        cleaned = [
+            value
+            for value in cleaned
+            if value.strip().casefold() not in generic_only
+        ]
+
         return cls._unique(cleaned)
 
 
@@ -1318,11 +1495,11 @@ class ClauseAnalysisService:
             r"\bJPY\b",
             r"\bAUD\b",
             r"\bCAD\b",
-            r"?",
+            r"\u20b9",
             r"\$",
-            r"�",
-            r"�",
-            r"�",
+            r"\u20ac",
+            r"\u00a3",
+            r"\u00a5",
             r"\brupees?\b",
             r"\bdollars?\b",
             r"\beuros?\b",
@@ -1369,17 +1546,178 @@ class ClauseAnalysisService:
         text: str,
         category: str,
     ) -> list[str]:
+        """
+        Extract legal references.
+
+        Legal-reference patterns are handled separately from the generic
+        regex extractor because some patterns intentionally use
+        capitalization to distinguish named legal instruments from
+        generic phrases such as "the law" or "applicable law".
+        """
+
         found = []
 
         for pattern in cls.LEGAL_REFERENCE_PATTERNS.get(
             category,
             [],
         ):
-            found.extend(
-                cls._regex_extract(text, pattern)
-            )
+            try:
+                matches = re.finditer(
+                    pattern,
+                    text,
+                )
+
+                for match in matches:
+                    value = match.group(0).strip()
+
+                    if value:
+                        found.append(value)
+
+            except re.error:
+                continue
 
         return cls._unique(found)
+
+    @classmethod
+    def _extract_jurisdiction(cls, text: str) -> list[str]:
+        """
+        Extract likely jurisdiction or venue locations.
+
+        Jurisdiction references are detected only when a location is
+        explicitly connected to courts, jurisdiction, or venue.
+        """
+
+        patterns = [
+            # "courts of Hyderabad shall have exclusive jurisdiction"
+            r"\bcourts?\s+of\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*?)(?=\s+(?:shall|must|may|has|have|is|are|will)\b|[.,;]|$)",
+
+            # "courts in Hyderabad shall ..."
+            r"\bcourts?\s+in\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*?)(?=\s+(?:shall|must|may|has|have|is|are|will)\b|[.,;]|$)",
+
+            # "jurisdiction of Hyderabad"
+            r"\bjurisdiction\s+of\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*?)(?=\s+(?:shall|must|may|has|have|is|are|will|be)\b|[.,;]|$)",
+
+            # "jurisdiction in Hyderabad"
+            r"\bjurisdiction\s+in\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*?)(?=\s+(?:shall|must|may|has|have|is|are|will|be)\b|[.,;]|$)",
+
+            # "within the jurisdiction of Hyderabad"
+            r"\bwithin\s+the\s+jurisdiction\s+of\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*?)(?=\s+(?:shall|must|may|has|have|is|are|will|be)\b|[.,;]|$)",
+
+            # "venue in Hyderabad"
+            r"\bvenue\s+in\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*?)(?=\s+(?:shall|must|may|has|have|is|are|will|be)\b|[.,;]|$)",
+
+            # "venue of Hyderabad"
+            r"\bvenue\s+of\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*?)(?=\s+(?:shall|must|may|has|have|is|are|will|be)\b|[.,;]|$)",
+        ]
+
+        found = []
+
+        for pattern in patterns:
+            matches = re.findall(
+                pattern,
+                text,
+                re.IGNORECASE,
+            )
+
+            for value in matches:
+                value = value.strip(" .,:;")
+
+                if not value:
+                    continue
+
+                if value.casefold() in {
+                    "the",
+                    "the courts",
+                    "the parties",
+                    "the law",
+                    "the applicable law",
+                }:
+                    continue
+
+                found.append(value)
+
+        return cls._unique(found)
+
+
+    # ================================================================
+    # Legal-reference explanations
+    # ================================================================
+
+    @classmethod
+    def _generate_legal_reference_explanations(
+        cls,
+        result: ClauseAnalysis,
+    ) -> list[str]:
+        """
+        Generate safe, general-language explanations for detected
+        legal references.
+
+        This explains the type and general purpose of a reference.
+        It does not invent the exact meaning of an unknown law,
+        section, regulation, or case.
+
+        A later legal-knowledge/RAG layer can provide authoritative,
+        source-backed explanations for specific references.
+        """
+
+        explanations = []
+
+        if result.laws:
+            for reference in result.laws:
+                explanations.append(
+                    f"{reference}: This is a reference to a law. "
+                    "The clause is relying on that law or its requirements."
+                )
+
+        if result.statutes:
+            for reference in result.statutes:
+                explanations.append(
+                    f"{reference}: This is a reference to a statute, "
+                    "meaning a law formally enacted by a legislative authority."
+                )
+
+        if result.regulations:
+            for reference in result.regulations:
+                explanations.append(
+                    f"{reference}: This is a reference to a regulation. "
+                    "Regulations generally provide detailed rules or requirements "
+                    "made under legal authority."
+                )
+
+        if result.sections:
+            for reference in result.sections:
+                explanations.append(
+                    f"{reference}: This identifies a particular section "
+                    "of a law or other legal document. "
+                    "The exact rule should be checked in the referenced section."
+                )
+
+        if result.articles:
+            for reference in result.articles:
+                explanations.append(
+                    f"{reference}: This identifies a particular article "
+                    "within a legal document, statute, regulation, treaty, "
+                    "or similar legal instrument."
+                )
+
+        if result.rules:
+            for reference in result.rules:
+                explanations.append(
+                    f"{reference}: This is a reference to a legal or "
+                    "procedural rule that may establish a requirement or process."
+                )
+
+        if result.case_references:
+            for reference in result.case_references:
+                explanations.append(
+                    f"{reference}: This appears to refer to a court case, "
+                    "judgment, or judicial proceeding. "
+                    "The referenced decision should be checked to understand "
+                    "its exact relevance."
+                )
+
+        return cls._unique(explanations)
+
 
     # ================================================================
     # Meaning
@@ -1392,20 +1730,106 @@ class ClauseAnalysisService:
         text: str,
     ) -> str:
         """
-        Generate a concise deterministic explanation of the clause.
+        Generate a concise deterministic plain-language interpretation.
 
-        This is intentionally rule-based for the current analysis layer.
-        Later, an AI/LLM layer can provide richer contextual explanations.
+        The current analysis layer is intentionally rule-based.
+        A later AI/LLM layer can provide richer contextual explanations.
         """
 
         parts = []
 
         # ------------------------------------------------------------
+        # Local helpers
+        # ------------------------------------------------------------
+
+        def clean_fragment(value: str) -> str:
+            value = " ".join(
+                str(value).replace("\n", " ").split()
+            )
+
+            value = value.strip(" ;,:")
+
+            # Avoid duplicated terminal punctuation when a fragment
+            # already ends with a sentence terminator.
+            value = value.rstrip(".")
+
+            return value
+
+        def unique_fragments(values) -> list[str]:
+            cleaned = []
+
+            for value in values:
+                value = clean_fragment(value)
+
+                if not value:
+                    continue
+
+                if value not in cleaned:
+                    cleaned.append(value)
+
+            return cleaned
+
+        def sentence_without_overlap(
+            values,
+            excluded,
+        ) -> list[str]:
+            result_values = []
+
+            excluded_text = {
+                clean_fragment(value).casefold()
+                for value in excluded
+            }
+
+            for value in values:
+                cleaned = clean_fragment(value)
+
+                if not cleaned:
+                    continue
+
+                if cleaned.casefold() in excluded_text:
+                    continue
+
+                result_values.append(cleaned)
+
+            return result_values
+
+        # ------------------------------------------------------------
         # Obligations / duties
         # ------------------------------------------------------------
-        obligation_sentences = cls._unique(
-            result.obligations + result.duties
+
+        raw_obligation_sentences = unique_fragments(
+            result.obligations
         )
+
+        # Some contractual sentences contain words such as "shall" or
+        # "must" but describe legal applicability rather than an actual
+        # duty. Do not present those as obligations in plain-language
+        # meaning.
+        obligation_exclusions = (
+            "shall be governed by",
+            "shall be subject to",
+            "shall be construed",
+            "shall be interpreted",
+            "shall apply",
+            "shall form part of",
+            "must be governed by",
+            "must be subject to",
+            "must be construed",
+            "must be interpreted",
+        )
+
+        obligation_sentences = []
+
+        for sentence in raw_obligation_sentences:
+            lower_sentence = sentence.casefold()
+
+            if any(
+                phrase in lower_sentence
+                for phrase in obligation_exclusions
+            ):
+                continue
+
+            obligation_sentences.append(sentence)
 
         if obligation_sentences:
             if len(obligation_sentences) == 1:
@@ -1415,81 +1839,151 @@ class ClauseAnalysisService:
                 )
             else:
                 parts.append(
-                    "It creates the following requirements: "
-                    + " ".join(obligation_sentences)
+                    "It creates these requirements: "
+                    + "; ".join(obligation_sentences)
+                    + "."
                 )
 
         # ------------------------------------------------------------
         # Rights / permissions
         # ------------------------------------------------------------
-        right_sentences = cls._unique(
+
+        right_sentences = unique_fragments(
             result.rights + result.permissions
         )
 
         if right_sentences:
             if len(right_sentences) == 1:
                 parts.append(
-                    "It gives the following right or permission: "
+                    "It gives a right or permission to: "
                     + right_sentences[0]
                 )
             else:
                 parts.append(
-                    "It also provides these rights or permissions: "
-                    + " ".join(right_sentences)
+                    "It provides these rights or permissions: "
+                    + "; ".join(right_sentences)
+                    + "."
                 )
 
         # ------------------------------------------------------------
         # Prohibitions
         # ------------------------------------------------------------
-        if result.prohibitions:
-            if len(result.prohibitions) == 1:
+
+        prohibition_sentences = unique_fragments(
+            result.prohibitions
+        )
+
+        if prohibition_sentences:
+            if len(prohibition_sentences) == 1:
                 parts.append(
-                    "It restricts the following action: "
-                    + result.prohibitions[0]
+                    "It restricts: "
+                    + prohibition_sentences[0]
                 )
             else:
                 parts.append(
-                    "It contains restrictions on the following actions: "
-                    + " ".join(result.prohibitions)
+                    "It contains these restrictions: "
+                    + "; ".join(prohibition_sentences)
+                    + "."
                 )
 
         # ------------------------------------------------------------
-        # Conditions / triggers
+        # Conditions
         # ------------------------------------------------------------
-        if result.conditions:
+
+        # Governing-law statements and dispute applicability can also
+        # contain words such as "subject to". They should not be presented
+        # as generic conditions.
+        governing_law_sentences = unique_fragments(
+            result.governing_law
+        )
+
+        dispute_sentences = unique_fragments(
+            result.dispute_terms
+        )
+
+        condition_sentences = sentence_without_overlap(
+            result.conditions,
+            obligation_sentences
+            + governing_law_sentences
+            + dispute_sentences,
+        )
+
+        if condition_sentences:
             parts.append(
-                "It applies subject to these conditions: "
-                + " ".join(result.conditions)
+                "It applies under these conditions: "
+                + "; ".join(condition_sentences)
+                + "."
             )
 
-        if result.triggers:
+        # ------------------------------------------------------------
+        # Governing law
+        # ------------------------------------------------------------
+
+        if governing_law_sentences:
+            if len(governing_law_sentences) == 1:
+                parts.append(
+                    "It specifies the governing law: "
+                    + governing_law_sentences[0]
+                    + "."
+                )
+            else:
+                parts.append(
+                    "It specifies the following governing-law provisions: "
+                    + "; ".join(governing_law_sentences)
+                    + "."
+                )
+
+        # ------------------------------------------------------------
+        # Triggers
+        # ------------------------------------------------------------
+
+        trigger_sentences = sentence_without_overlap(
+            result.triggers,
+            obligation_sentences + condition_sentences,
+        )
+
+        if trigger_sentences:
             parts.append(
                 "It is triggered by: "
-                + " ".join(result.triggers)
+                + "; ".join(trigger_sentences)
+                + "."
             )
 
         # ------------------------------------------------------------
         # Consequences
         # ------------------------------------------------------------
-        if result.consequences:
+
+        consequence_sentences = unique_fragments(
+            result.consequences
+        )
+
+        if consequence_sentences:
             parts.append(
                 "It specifies these consequences: "
-                + " ".join(result.consequences)
+                + "; ".join(consequence_sentences)
+                + "."
             )
 
         # ------------------------------------------------------------
         # Financial terms
         # ------------------------------------------------------------
-        if result.monetary_terms and not obligation_sentences:
+
+        monetary_terms = unique_fragments(
+            result.monetary_terms
+        )
+
+        if monetary_terms and not obligation_sentences:
             parts.append(
-                "It contains monetary terms including: "
-                + ", ".join(result.monetary_terms)
+                "It contains monetary terms such as: "
+                + ", ".join(monetary_terms)
+                + "."
             )
 
         # ------------------------------------------------------------
         # Timing
         # ------------------------------------------------------------
-        timing = cls._unique(
+
+        timing = unique_fragments(
             result.dates
             + result.deadlines
             + result.durations
@@ -1497,13 +1991,15 @@ class ClauseAnalysisService:
 
         if timing and not obligation_sentences:
             parts.append(
-                "The required timing is: "
+                "The relevant timing includes: "
                 + ", ".join(timing)
+                + "."
             )
 
         # ------------------------------------------------------------
         # Disputes / jurisdiction
         # ------------------------------------------------------------
+
         if result.dispute_terms:
             parts.append(
                 "It addresses dispute resolution or enforcement."
@@ -1522,6 +2018,7 @@ class ClauseAnalysisService:
         # ------------------------------------------------------------
         # Privacy / data
         # ------------------------------------------------------------
+
         if result.data_terms or result.privacy_terms:
             parts.append(
                 "It addresses data, privacy, or information-handling matters."
@@ -1530,6 +2027,7 @@ class ClauseAnalysisService:
         # ------------------------------------------------------------
         # Employment
         # ------------------------------------------------------------
+
         if result.employment_terms:
             parts.append(
                 "It concerns employment-related terms."
@@ -1538,6 +2036,7 @@ class ClauseAnalysisService:
         # ------------------------------------------------------------
         # Loans
         # ------------------------------------------------------------
+
         if result.loan_terms:
             parts.append(
                 "It concerns loan, credit, financing, or repayment terms."
@@ -1546,6 +2045,7 @@ class ClauseAnalysisService:
         # ------------------------------------------------------------
         # Property
         # ------------------------------------------------------------
+
         if result.property_terms:
             parts.append(
                 "It concerns property, ownership, possession, or related terms."
@@ -1554,6 +2054,7 @@ class ClauseAnalysisService:
         # ------------------------------------------------------------
         # Intellectual property
         # ------------------------------------------------------------
+
         if result.intellectual_property_terms:
             parts.append(
                 "It concerns intellectual-property rights or restrictions."
@@ -1562,6 +2063,7 @@ class ClauseAnalysisService:
         # ------------------------------------------------------------
         # Confidentiality
         # ------------------------------------------------------------
+
         if result.confidentiality_terms:
             parts.append(
                 "It creates confidentiality or non-disclosure requirements."
@@ -1570,24 +2072,46 @@ class ClauseAnalysisService:
         # ------------------------------------------------------------
         # Legal references
         # ------------------------------------------------------------
-        if result.legal_references:
-            parts.append(
-                "It contains legal, statutory, regulatory, or judicial references."
-            )
+
+        legal_references = unique_fragments(
+            result.legal_references
+        )
+
+        if legal_references:
+            if len(legal_references) == 1:
+                parts.append(
+                    "It refers to "
+                    + legal_references[0]
+                    + "."
+                )
+            else:
+                parts.append(
+                    "It refers to these legal instruments or provisions: "
+                    + "; ".join(legal_references)
+                    + "."
+                )
 
         # ------------------------------------------------------------
         # Fallback
         # ------------------------------------------------------------
-        if not parts:
-            return (
-                "This provision defines the relationship or general terms between the parties."
 
+        if not parts:
+            cleaned_text = clean_fragment(text)
+
+            if cleaned_text:
+                return (
+                    "This provision generally states: "
+                    + cleaned_text
+                )
+
+            return (
+                "This provision defines the relationship or general "
+                "terms between the parties."
             )
 
         return " ".join(parts)
 
 
-    # ================================================================
     # Risk
     # ================================================================
 
