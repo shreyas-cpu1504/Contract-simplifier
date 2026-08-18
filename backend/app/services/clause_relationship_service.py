@@ -34,7 +34,7 @@ class ClauseRelationshipService:
         r"\s+(?:no\.?\s*)?([A-Za-z0-9]+(?:\([A-Za-z0-9]+\))?(?:\.[A-Za-z0-9]+)*)",
 
         r"\b(?:clause|section|article|paragraph|sub[- ]?section|subsection)"
-        r"\s+([A-Za-z0-9]+(?:\s*(?:and|or)\s*[A-Za-z0-9]+)*)",
+        r"\s+([A-Za-z0-9]+(?:\s*(?:and|or)\s*[A-Za-z0-9]+)*)(?!\.[A-Za-z0-9])",
 
         r"\b(?:under|pursuant to|in accordance with|as provided in|as set out in)"
         r"\s+(?:clause|section|article|paragraph)\s+"
@@ -453,7 +453,19 @@ class ClauseRelationshipService:
             except re.error:
                 continue
 
-        return cls._unique_dicts(found)
+        unique = []
+        seen_references = set()
+
+        for item in found:
+            reference = item["reference"].strip().casefold()
+
+            if reference in seen_references:
+                continue
+
+            seen_references.add(reference)
+            unique.append(item)
+
+        return unique
 
     @classmethod
     def _resolve_reference(
