@@ -1672,6 +1672,11 @@ class ClauseAnalysisService:
                 "The provision contains termination-related rights or consequences."
             ),
             (
+                "terminate",
+                15,
+                "The provision contains termination-related rights or consequences."
+            ),
+            (
                 "breach",
                 20,
                 "The provision contains breach-related consequences."
