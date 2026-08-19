@@ -4,6 +4,8 @@ from pathlib import Path
 from docx import Document
 from pypdf import PdfReader
 
+from app.services.ocr_service import OCRService
+
 
 class TextExtractionService:
 
@@ -23,8 +25,12 @@ class TextExtractionService:
         if extension == ".docx":
             return TextExtractionService._extract_docx(content)
 
+        if extension in {".png", ".jpg", ".jpeg"}:
+            return OCRService.extract_from_image(content)
+
         raise ValueError(
-            f"Unsupported file type for text extraction: {extension or 'unknown'}"
+            f"Unsupported file type for text extraction: "
+            f"{extension or 'unknown'}"
         )
 
     @staticmethod
@@ -32,7 +38,10 @@ class TextExtractionService:
         try:
             text = content.decode("utf-8")
         except UnicodeDecodeError:
-            text = content.decode("utf-8", errors="replace")
+            text = content.decode(
+                "utf-8",
+                errors="replace",
+            )
 
         return text.strip()
 
@@ -48,7 +57,14 @@ class TextExtractionService:
             if page_text:
                 pages.append(page_text)
 
-        return "\n\n".join(pages).strip()
+        extracted_text = "\n\n".join(pages).strip()
+
+        # Normal text-based PDF.
+        if extracted_text:
+            return extracted_text
+
+        # Scanned/image-only PDF.
+        return OCRService.extract_from_pdf(content)
 
     @staticmethod
     def _extract_docx(content: bytes) -> str:

@@ -8,10 +8,13 @@ from app.core.config import get_settings
 
 class FileIngestionService:
     ALLOWED_EXTENSIONS = {
-        ".txt",
-        ".pdf",
-        ".docx",
-    }
+    ".txt",
+    ".pdf",
+    ".docx",
+    ".png",
+    ".jpg",
+    ".jpeg",
+}
 
     BASE_STORAGE_DIR = Path("storage")
     UPLOAD_DIR = BASE_STORAGE_DIR / "uploads"

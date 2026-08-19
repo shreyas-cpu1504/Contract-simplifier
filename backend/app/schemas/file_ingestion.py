@@ -7,7 +7,9 @@ class FileType(str, Enum):
     TXT = "txt"
     PDF = "pdf"
     DOCX = "docx"
-
+    PNG = "png"
+    JPG = "jpg"
+    JPEG = "jpeg"
 
 class FileIngestionResponse(BaseModel):
     message: str
