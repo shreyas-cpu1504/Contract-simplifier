@@ -2129,7 +2129,7 @@ class ClauseAnalysisService:
         high_rules = [
             (
                 "unlimited liability",
-                45,
+                60,
                 "The provision may create potentially unlimited liability."
             ),
             (
