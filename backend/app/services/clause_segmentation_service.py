@@ -20,46 +20,22 @@ class ClauseSegmentationService:
             normalized_text
         )
 
-        # If the document has no paragraph/numbered structure and
-        # everything arrived as one block, fall back to sentence-level
-        # segmentation. This is useful for extracted text from PDFs,
-        # DOCX files, OCR, and simple text input where line breaks
-        # may have been lost.
+        # If there is no paragraph structure, fall back to
+        # sentence-level segmentation.
         if len(blocks) == 1:
             blocks = ClauseSegmentationService._split_into_sentences(
                 blocks[0]
             )
 
-        clauses = []
+        # Merge numbered headings with the content that follows them.
+        blocks = ClauseSegmentationService._merge_numbered_headings(
+            blocks
+        )
 
+        clauses = []
         current_sections = {}
 
         for block in blocks:
-
-            # Check whether this block is a numbered section.
-            section_match = (
-                ClauseSegmentationService.NUMBER_PATTERN.match(
-                    block.split("\n")[0]
-                )
-            )
-
-            if section_match:
-                number = section_match.group(1)
-                remainder = section_match.group(2).strip()
-
-                # A top-level number such as:
-                # 1. PAYMENT
-                if (
-                    "." not in number
-                    and len(block.split("\n")) == 1
-                ):
-                    if (
-                        len(remainder) <= 100
-                        and remainder.upper() == remainder
-                    ):
-                        current_sections[number] = remainder
-                        continue
-
             clause = ClauseSegmentationService._parse_block(
                 block,
                 len(clauses) + 1,
@@ -120,14 +96,54 @@ class ClauseSegmentationService:
         return blocks
 
     @staticmethod
+    def _merge_numbered_headings(
+        blocks: list[str],
+    ) -> list[str]:
+
+        merged = []
+        index = 0
+
+        while index < len(blocks):
+            block = blocks[index]
+
+            lines = block.split("\n")
+            first_line = lines[0].strip()
+
+            match = ClauseSegmentationService.NUMBER_PATTERN.match(
+                first_line
+            )
+
+            if (
+                match
+                and "." not in match.group(1)
+                and len(lines) == 1
+                and index + 1 < len(blocks)
+            ):
+                number = match.group(1)
+                heading = match.group(2).strip()
+
+                # A short numbered heading is combined with
+                # the following block.
+                if (
+                    len(heading) <= 100
+                    and any(char.isalpha() for char in heading)
+                ):
+                    next_block = blocks[index + 1].strip()
+
+                    merged.append(
+                        f"{number}. {heading}\n{next_block}"
+                    )
+
+                    index += 2
+                    continue
+
+            merged.append(block)
+            index += 1
+
+        return merged
+
+    @staticmethod
     def _split_into_sentences(text: str) -> list[str]:
-        """
-        Split a flat block of contract text into sentence-level units.
-
-        This is a fallback only. Structured paragraphs and numbered
-        clauses are handled before reaching this method.
-        """
-
         sentences = re.split(
             r"(?<=[.!?])\s+(?=[A-Z])",
             text.strip(),
@@ -161,18 +177,6 @@ class ClauseSegmentationService:
             clause_number = match.group(1)
             remainder = match.group(2).strip()
 
-            # Top-level heading such as:
-            # 1. PAYMENT
-            if (
-                "." not in clause_number
-                and len(lines) == 1
-            ):
-                if (
-                    len(remainder) <= 100
-                    and remainder.upper() == remainder
-                ):
-                    return None
-
             parent_clause = (
                 ClauseSegmentationService._get_parent(
                     clause_number
@@ -185,7 +189,6 @@ class ClauseSegmentationService:
                 else None
             )
 
-            # Remove "1.1 " from the actual clause text.
             if len(lines) == 1:
                 clause_text = remainder
             else:
@@ -193,6 +196,25 @@ class ClauseSegmentationService:
 
                 clause_text = "\n".join(
                     [remainder] + remaining_lines
+                ).strip()
+
+            if not clause_text:
+                return None
+
+            # For a top-level clause such as:
+            #
+            # 1. Payment
+            # The Customer shall pay...
+            #
+            # store "Payment" as the title and the
+            # following sentence as the actual clause text.
+            if (
+                "." not in clause_number
+                and len(lines) >= 2
+            ):
+                title = remainder
+                clause_text = "\n".join(
+                    lines[1:]
                 ).strip()
 
             if not clause_text:

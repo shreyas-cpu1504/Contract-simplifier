@@ -72,7 +72,7 @@ def _analysis_to_schema(analysis) -> ClauseAnalysis:
         clause_id=data["clause_id"],
         clause_number=clause_number,
         clause_type=data["clause_type"],
-        title=None,
+        title=data.get("title"),
         meaning=data["meaning"],
         key_points=[],
 
