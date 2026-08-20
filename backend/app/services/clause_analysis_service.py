@@ -12,6 +12,7 @@ class ClauseAnalysis:
     clause_id: str
     clause_number: Optional[str] = None
     clause_type: Optional[str] = None
+    title: Optional[str] = None
     meaning: Optional[str] = None
 
     # ------------------------------------------------------------------
@@ -365,10 +366,11 @@ class ClauseAnalysisService:
         text = cls._clean(getattr(clause, "text", "") or "")
 
         result = ClauseAnalysis(
-            clause_id=getattr(clause, "clause_id", "") or "",
-            clause_number=getattr(clause, "clause_number", None),
-            clause_type=getattr(clause, "clause_type", None),
-        )
+    clause_id=getattr(clause, "clause_id", "") or "",
+    clause_number=getattr(clause, "clause_number", None),
+    clause_type=getattr(clause, "clause_type", None),
+    title=getattr(clause, "title", None),
+)
 
         if not text:
             result.meaning = "No substantive text was available for analysis."
