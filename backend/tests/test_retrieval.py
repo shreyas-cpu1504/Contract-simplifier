@@ -95,3 +95,25 @@ def test_no_relevant_clause_returns_empty():
     )
 
     assert results == []
+
+
+def test_unrelated_address_question_returns_no_results():
+    clauses = [
+        make_clause(
+            "c1",
+            "1",
+            "The Customer shall pay INR 50,000 within 30 days.",
+        ),
+        make_clause(
+            "c2",
+            "2",
+            "The Customer shall have unlimited liability for losses.",
+        ),
+    ]
+
+    results = RetrievalService.retrieve(
+        "What is the customer's address?",
+        clauses,
+    )
+
+    assert results == []

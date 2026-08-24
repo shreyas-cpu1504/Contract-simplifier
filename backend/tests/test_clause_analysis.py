@@ -112,9 +112,15 @@ def test_analysis_has_meaning():
 
 def test_analysis_batch():
     clauses = [
-        make_clause("The Customer shall pay the invoice."),
-        make_clause("Either party may terminate this agreement."),
-        make_clause("The receiving party shall keep information confidential."),
+        make_clause(
+            "The Customer shall pay the invoice."
+        ),
+        make_clause(
+            "Either party may terminate this agreement."
+        ),
+        make_clause(
+            "The receiving party shall keep information confidential."
+        ),
     ]
 
     classified = ClauseClassifierService.classify_many(clauses)
@@ -124,3 +130,87 @@ def test_analysis_batch():
     assert results[0].clause_type == "PAYMENT"
     assert results[1].clause_type == "TERMINATION"
     assert results[2].clause_type == "CONFIDENTIALITY"
+
+
+# ============================================================
+# Financial term tests
+# ============================================================
+
+def test_fee_extraction():
+    result = analyze(
+        "The Customer shall pay a service fee of INR 50,000 within 30 days."
+    )
+
+    assert result.fees
+    assert any(
+        "service fee" in item.lower()
+        for item in result.fees
+    )
+
+
+def test_cancellation_charge_extraction():
+    result = analyze(
+        "A cancellation charge of INR 5,000 shall apply if the Customer cancels."
+    )
+
+    assert result.fees
+    assert any(
+        "cancellation charge" in item.lower()
+        for item in result.fees
+    )
+
+
+def test_penalty_extraction():
+    result = analyze(
+        "A penalty of INR 10,000 shall apply for late performance."
+    )
+
+    assert result.penalties
+    assert any(
+        "penalty" in item.lower()
+        for item in result.penalties
+    )
+
+
+def test_interest_extraction():
+    result = analyze(
+        "A late payment shall incur interest at 2 percent per month."
+    )
+
+    assert result.interest_terms
+    assert any(
+        "interest" in item.lower()
+        for item in result.interest_terms
+    )
+
+
+def test_tax_extraction():
+    result = analyze(
+        "The Customer shall pay GST at 18 percent on the service fee."
+    )
+
+    assert result.taxes
+    assert any(
+        "gst" in item.lower()
+        for item in result.taxes
+    )
+
+
+def test_multiple_financial_terms():
+    result = analyze(
+        """
+        The Customer shall pay INR 50,000 as a service fee.
+        A cancellation charge of INR 5,000 shall apply.
+        A penalty of INR 10,000 shall apply for late performance.
+        Late payment shall incur interest at 2 percent per month.
+        GST at 18 percent shall apply.
+        """
+    )
+
+    assert result.monetary_terms
+    assert result.fees
+    assert result.penalties
+    assert result.interest_terms
+    assert result.taxes
+    assert result.currencies
+    assert result.percentages

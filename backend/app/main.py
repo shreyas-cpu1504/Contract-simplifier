@@ -4,6 +4,7 @@ from app.api.v1.ingestion import router as ingestion_router
 from app.api.v1.file_ingestion import router as file_ingestion_router
 from app.api.v1.clauses import router as clauses_router
 from app.api.v1.qa import router as qa_router
+from app.api.v1.media_ingestion import router as media_ingestion_router
 
 from app.core.config import get_settings
 from app.schemas.health import HealthResponse
@@ -31,26 +32,27 @@ async def health_check() -> HealthResponse:
     )
 
 
-# Text ingestion
 app.include_router(
     ingestion_router,
     prefix=settings.api_prefix,
 )
 
-# File upload and extraction
 app.include_router(
     file_ingestion_router,
     prefix=settings.api_prefix,
 )
 
-# Clause segmentation, analysis, relationships and summary
 app.include_router(
     clauses_router,
     prefix=settings.api_prefix,
 )
 
-# Contract question answering
 app.include_router(
     qa_router,
+    prefix=settings.api_prefix,
+)
+
+app.include_router(
+    media_ingestion_router,
     prefix=settings.api_prefix,
 )

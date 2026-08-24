@@ -1,12 +1,23 @@
 import re
+from dataclasses import dataclass
 
 from app.schemas.clause import Clause
+
+
+@dataclass(frozen=True)
+class RetrievedClause:
+    clause_id: str
+    clause_number: str | None
+    title: str | None
+    text: str
+    score: float
 
 
 class ClauseClassifierService:
 
     # ------------------------------------------------------------------
     # High-confidence primary legal patterns
+    # ------------------------------------------------------------------
     #
     # These patterns identify the main legal purpose of a clause.
     # They are evaluated before the broader keyword scoring system.
@@ -16,6 +27,19 @@ class ClauseClassifierService:
     # ------------------------------------------------------------------
 
     PRIMARY_PATTERNS = {
+
+        "CANCELLATION": [
+            r"\bcancel\s+this\s+agreement\b",
+            r"\bmay\s+cancel\b",
+            r"\bcan\s+cancel\b",
+            r"\bcancellation\s+of\s+this\s+agreement\b",
+            r"\bcancellation\s+charge\b",
+            r"\bcancellation\s+fee\b",
+            r"\bcancel(?:lation)?\s+fee\b",
+            r"\bcancel(?:lation)?\s+charge\b",
+            r"\bnon[-\s]?refundable\b",
+        ],
+
         "TERMINATION": [
             r"\bmay\s+terminate\b",
             r"\bcan\s+terminate\b",
@@ -223,6 +247,18 @@ class ClauseClassifierService:
     # ------------------------------------------------------------------
 
     KEYWORDS = {
+
+        "CANCELLATION": [
+            ("cancel", 6.0),
+            ("cancellation", 7.0),
+            ("cancellation charge", 8.0),
+            ("cancellation fee", 8.0),
+            ("cancel fee", 7.0),
+            ("cancel charge", 7.0),
+            ("non-refundable", 6.0),
+            ("non refundable", 6.0),
+        ],
+
         "PAYMENT": [
             ("pay", 2.0),
             ("payment", 3.0),
@@ -516,20 +552,36 @@ class ClauseClassifierService:
         weight: float,
     ) -> float:
         pattern = rf"\b{re.escape(keyword.lower())}\b"
-        return len(re.findall(pattern, text)) * weight
+
+        return len(
+            re.findall(
+                pattern,
+                text,
+            )
+        ) * weight
 
     @classmethod
-    def _primary_classification(cls, text: str) -> str | None:
+    def _primary_classification(
+        cls,
+        text: str,
+    ) -> str | None:
         """
-        Identify high-confidence legal purpose before broad keyword scoring.
+        Identify high-confidence legal purpose before broad
+        keyword scoring.
 
-        Patterns are intentionally ordered so highly distinctive legal
-        concepts are evaluated before broader categories.
+        Patterns are intentionally ordered so highly distinctive
+        legal concepts are evaluated before broader categories.
         """
 
         priority_order = [
             "FORCE_MAJEURE",
             "REPRESENTATIONS_WARRANTIES",
+
+            # Cancellation must be checked before termination
+            # and notices because cancellation clauses commonly
+            # contain termination-like language and written notice.
+            "CANCELLATION",
+
             "TERMINATION",
             "EMPLOYMENT",
             "ASSIGNMENT",
@@ -554,14 +606,24 @@ class ClauseClassifierService:
         ]
 
         for clause_type in priority_order:
-            for pattern in cls.PRIMARY_PATTERNS.get(clause_type, []):
-                if re.search(pattern, text, flags=re.IGNORECASE):
+            for pattern in cls.PRIMARY_PATTERNS.get(
+                clause_type,
+                [],
+            ):
+                if re.search(
+                    pattern,
+                    text,
+                    flags=re.IGNORECASE,
+                ):
                     return clause_type
 
         return None
 
     @classmethod
-    def classify(cls, clause: Clause) -> Clause:
+    def classify(
+        cls,
+        clause: Clause,
+    ) -> Clause:
 
         text = " ".join(
             filter(
@@ -576,7 +638,10 @@ class ClauseClassifierService:
         # --------------------------------------------------------------
         # Phase 1: high-confidence primary legal purpose
         # --------------------------------------------------------------
-        primary_type = cls._primary_classification(text)
+
+        primary_type = cls._primary_classification(
+            text
+        )
 
         if primary_type:
             return clause.model_copy(
@@ -588,6 +653,7 @@ class ClauseClassifierService:
         # --------------------------------------------------------------
         # Phase 2: generalized weighted keyword classification
         # --------------------------------------------------------------
+
         scores: dict[str, float] = {}
 
         for clause_type, keywords in cls.KEYWORDS.items():

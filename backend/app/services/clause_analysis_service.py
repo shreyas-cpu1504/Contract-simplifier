@@ -302,7 +302,9 @@ class ClauseAnalysisService:
         r"(?:rupees|dollars|euros|pounds|yen)\b)"
     )
 
-    PERCENT_PATTERN = r"\b\d+(?:\.\d+)?\s*%"
+    PERCENT_PATTERN = (
+    r"\b\d+(?:\.\d+)?\s*(?:%|percent|percentage)\b"
+)
 
     LEGAL_REFERENCE_PATTERNS = {
         # Specific references:
@@ -2128,6 +2130,10 @@ class ClauseAnalysisService:
         score = 0
         reasons = []
 
+        # ============================================================
+        # HIGH-RISK INDICATORS
+        # ============================================================
+
         high_rules = [
             (
                 "unlimited liability",
@@ -2145,14 +2151,39 @@ class ClauseAnalysisService:
                 "The provision may require one party to cover losses or claims."
             ),
             (
-                "waive",
-                30,
-                "The provision may involve giving up a right or protection."
+                "personal guarantee",
+                45,
+                "The provision may create personal financial responsibility."
             ),
             (
-                "waiver",
+                "personal guarantor",
+                45,
+                "The provision may create personal financial responsibility."
+            ),
+            (
+                "collateral",
+                35,
+                "The provision involves security or collateral."
+            ),
+            (
+                "security interest",
+                35,
+                "The provision may create rights over assets or security."
+            ),
+            (
+                "acceleration",
+                35,
+                "The provision may make outstanding amounts immediately payable."
+            ),
+            (
+                "without notice",
+                25,
+                "The provision may permit action without prior notice."
+            ),
+            (
+                "irrevocable",
                 30,
-                "The provision may involve giving up a right or protection."
+                "The provision describes an action or authority as irrevocable."
             ),
             (
                 "non-compete",
@@ -2164,17 +2195,11 @@ class ClauseAnalysisService:
                 30,
                 "The provision may impose a significant restriction on activities."
             ),
-            (
-                "irrevocable",
-                30,
-                "The provision describes an action or authority as irrevocable."
-            ),
-            (
-                "without notice",
-                25,
-                "The provision may permit action without prior notice."
-            ),
         ]
+
+        # ============================================================
+        # MEDIUM-RISK INDICATORS
+        # ============================================================
 
         medium_rules = [
             (
@@ -2193,39 +2218,34 @@ class ClauseAnalysisService:
                 "The provision contains default-related consequences."
             ),
             (
-                "termination",
-                15,
-                "The provision contains termination-related rights or consequences."
-            ),
-            (
-                "terminate",
-                15,
-                "The provision contains termination-related rights or consequences."
-            ),
-            (
                 "breach",
                 20,
                 "The provision contains breach-related consequences."
             ),
             (
-                "confidential",
+                "termination",
                 10,
+                "The provision contains termination-related rights or conditions."
+            ),
+            (
+                "terminate",
+                10,
+                "The provision contains termination-related rights or conditions."
+            ),
+            (
+                "confidential",
+                5,
                 "The provision creates confidentiality responsibilities."
             ),
             (
                 "jurisdiction",
-                10,
+                5,
                 "The provision affects where legal proceedings may occur."
             ),
             (
                 "arbitration",
                 10,
                 "The provision requires or refers to arbitration."
-            ),
-            (
-                "collateral",
-                15,
-                "The provision involves security or collateral."
             ),
             (
                 "guarantee",
@@ -2249,18 +2269,146 @@ class ClauseAnalysisService:
                 score += weight
                 reasons.append(reason)
 
-        # Additional structural signals
+        # ============================================================
+        # FINANCIAL OBLIGATION
+        # ============================================================
+
+        if result.monetary_terms:
+            score += 10
+            reasons.append(
+                "The provision contains a financial obligation or monetary amount."
+            )
+
+        # ============================================================
+        # PAYMENT + DEADLINE
+        # ============================================================
+
+        payment_words = [
+            "payment",
+            "pay",
+            "payable",
+            "invoice",
+            "fee",
+            "amount",
+            "repayment",
+        ]
+
+        has_payment_language = any(
+            word in lower
+            for word in payment_words
+        )
+
+        if result.monetary_terms and has_payment_language:
+            score += 10
+            reasons.append(
+                "The provision creates a financial payment obligation."
+            )
+
+        if result.monetary_terms and result.deadlines:
+            score += 10
+            reasons.append(
+                "The provision combines a financial obligation with a deadline."
+            )
+
+        # ============================================================
+        # FEES
+        # ============================================================
+
+        if result.fees:
+            score += 10
+            reasons.append(
+                "The provision contains fees or charges that may create financial impact."
+            )
+
+        # ============================================================
+        # PENALTIES
+        # ============================================================
+
+        if result.penalties:
+            score += 20
+            reasons.append(
+                "The provision contains penalties or additional financial consequences."
+            )
+
+        # ============================================================
+        # LOAN / BANKING TERMS
+        # ============================================================
+
+        loan_terms = [
+            "loan",
+            "borrower",
+            "lender",
+            "principal",
+            "interest",
+            "interest rate",
+            "emi",
+            "installment",
+            "instalment",
+            "repayment",
+            "credit facility",
+            "loan amount",
+        ]
+
+        matched_loan_terms = [
+            term
+            for term in loan_terms
+            if term in lower
+        ]
+
+        if matched_loan_terms:
+            score += 10
+            reasons.append(
+                "The provision contains loan or credit-related financial terms."
+            )
+
+        # ============================================================
+        # DEFAULT / CONSEQUENCES
+        # ============================================================
+
+        if result.consequences:
+            score += 10
+            reasons.append(
+                "The provision specifies consequences that may affect a party."
+            )
+
+        # ============================================================
+        # RESTRICTIONS
+        # ============================================================
+
+        if result.prohibitions:
+            score += 5
+            reasons.append(
+                "The provision contains restrictions or prohibitions."
+            )
+
         if len(result.prohibitions) >= 2:
             score += 10
             reasons.append(
                 "The provision contains multiple restrictions or prohibitions."
             )
 
-        if result.monetary_terms and result.penalties:
-            score += 10
+        # ============================================================
+        # LIABILITY LIMITATION
+        # ============================================================
+
+        liability_terms = [
+            "not be liable",
+            "shall not be liable",
+            "limitation of liability",
+            "exclude liability",
+            "indirect damages",
+            "consequential damages",
+        ]
+
+        if any(term in lower for term in liability_terms):
+            score += 20
             reasons.append(
-                "The provision combines financial terms with penalties or consequences."
+                "The provision limits or excludes liability for certain losses."
             )
+
+        # ============================================================
+        # LEGAL / DISPUTE TERMS
+        # ============================================================
 
         if result.legal_references and result.consequences:
             score += 5
@@ -2268,8 +2416,29 @@ class ClauseAnalysisService:
                 "The provision combines legal references with stated consequences."
             )
 
+        if result.dispute_terms:
+            score += 10
+            reasons.append(
+                "The provision contains dispute or enforcement-related terms."
+            )
+
+        if result.jurisdiction:
+            score += 5
+            reasons.append(
+                "The provision specifies jurisdiction or applicable legal authority."
+            )
+
+        # ============================================================
+        # CAP SCORE
+        # ============================================================
+
         score = min(score, 100)
+
         reasons = cls._unique(reasons)
+
+        # ============================================================
+        # RISK LEVEL
+        # ============================================================
 
         if score >= 60:
             level = "HIGH"
