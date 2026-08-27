@@ -303,7 +303,7 @@ class ClauseAnalysisService:
     )
 
     PERCENT_PATTERN = (
-    r"\b\d+(?:\.\d+)?\s*(?:%|percent|percentage)\b"
+    r"\b\d+(?:\.\d+)?\s*(?:%|percent|percentage)"
 )
 
     LEGAL_REFERENCE_PATTERNS = {
@@ -476,17 +476,26 @@ class ClauseAnalysisService:
 
         # Financial
         result.monetary_terms = cls._extract_money(text)
+
         result.percentages = cls._regex_extract(
-            text, cls.PERCENT_PATTERN
+            text,
+            cls.PERCENT_PATTERN,
         )
 
         result.currencies = cls._extract_currencies(text)
 
         result.fees = cls._keyword_sentences(
             text,
-            ["fee", "fees", "charge", "charges", "commission"],
+            [
+                "fee",
+                "fees",
+                "charge",
+                "charges",
+                "commission",
+                "payment",
+                "payments",
+            ],
         )
-
         result.penalties = cls._keyword_sentences(
             text,
             ["penalty", "penalties", "fine", "fines"],
@@ -522,20 +531,18 @@ class ClauseAnalysisService:
         result.case_references = cls._keyword_sentences(
             text,
             [
-                "case",
                 "judgment",
-                "judgement",
-                "court",
-                "tribunal",
-                "decision",
-                "citation",
-                "precedent",
-                "petition",
-                "appeal",
-                "order",
-            ],
-        )
-
+        "judgement",
+        "tribunal",
+        "precedent",
+        "petition",
+        "appeal",
+        "court decision",
+        "court order",
+        "tribunal decision",
+        "tribunal order",
+    ],
+)
         result.legal_references = cls._unique(
             result.laws
             + result.regulations
@@ -655,7 +662,6 @@ class ClauseAnalysisService:
                 "governing law",
                 "governed by",
                 "applicable law",
-                "laws of",
             ],
         )
 
@@ -2619,5 +2625,4 @@ class ClauseAnalysisService:
             cls.analyze_clause(clause)
             for clause in clauses
         ]
-
 
