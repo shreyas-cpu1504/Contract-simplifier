@@ -1451,7 +1451,14 @@ class ClauseAnalysisService:
 
     @classmethod
     def _extract_authorities(cls, text: str) -> list[str]:
-        return cls._keyword_sentences(
+        """
+        Extract sentences that refer to genuine governmental,
+        regulatory, judicial, or public authorities.
+
+        Ordinary commercial references such as a bank account
+        should not be treated as authorities.
+        """
+        found = cls._keyword_sentences(
             text,
             [
                 "government",
@@ -1467,11 +1474,28 @@ class ClauseAnalysisService:
                 "municipality",
                 "local authority",
                 "police",
-                "bank",
                 "central bank",
                 "tax authority",
             ],
         )
+
+        filtered = []
+
+        for sentence in found:
+            lower_sentence = sentence.casefold()
+
+            if (
+                "bank account" in lower_sentence
+                or "bank details" in lower_sentence
+                or "bank transfer" in lower_sentence
+                or "bank payment" in lower_sentence
+                or "account specified" in lower_sentence
+            ):
+                continue
+
+            filtered.append(sentence)
+
+        return cls._unique(filtered)
 
     # ================================================================
     # Time / money

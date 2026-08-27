@@ -18,13 +18,6 @@ class ClauseClassifierService:
     # ------------------------------------------------------------------
     # High-confidence primary legal patterns
     # ------------------------------------------------------------------
-    #
-    # These patterns identify the main legal purpose of a clause.
-    # They are evaluated before the broader keyword scoring system.
-    #
-    # This prevents incidental concepts from incorrectly becoming the
-    # primary classification.
-    # ------------------------------------------------------------------
 
     PRIMARY_PATTERNS = {
 
@@ -545,20 +538,30 @@ class ClauseClassifierService:
         ],
     }
 
+    # ------------------------------------------------------------------
+    # Keyword scoring
+    # ------------------------------------------------------------------
+
     @staticmethod
     def _keyword_score(
         text: str,
         keyword: str,
         weight: float,
     ) -> float:
+
         pattern = rf"\b{re.escape(keyword.lower())}\b"
 
         return len(
             re.findall(
                 pattern,
                 text,
+                flags=re.IGNORECASE,
             )
         ) * weight
+
+    # ------------------------------------------------------------------
+    # Primary classification
+    # ------------------------------------------------------------------
 
     @classmethod
     def _primary_classification(
@@ -606,10 +609,12 @@ class ClauseClassifierService:
         ]
 
         for clause_type in priority_order:
+
             for pattern in cls.PRIMARY_PATTERNS.get(
                 clause_type,
                 [],
             ):
+
                 if re.search(
                     pattern,
                     text,
@@ -618,6 +623,10 @@ class ClauseClassifierService:
                     return clause_type
 
         return None
+
+    # ------------------------------------------------------------------
+    # Single clause classification
+    # ------------------------------------------------------------------
 
     @classmethod
     def classify(
@@ -636,6 +645,210 @@ class ClauseClassifierService:
         ).lower()
 
         # --------------------------------------------------------------
+        # Phase 0: explicit section titles
+        # --------------------------------------------------------------
+
+        if clause.title:
+
+            title_upper = clause.title.strip().upper()
+
+            if title_upper == "GENERAL":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "GENERAL"
+                    }
+                )
+
+            if title_upper == "LIABILITY":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "LIABILITY"
+                    }
+                )
+
+            if title_upper == "PAYMENT TERMS":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "PAYMENT"
+                    }
+                )
+
+            if title_upper == "CONFIDENTIALITY":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "CONFIDENTIALITY"
+                    }
+                )
+
+            if title_upper == "TERM AND TERMINATION":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "TERMINATION"
+                    }
+                )
+
+            if title_upper == "SCOPE OF SERVICES":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "OBLIGATION"
+                    }
+                )
+
+            if title_upper == "GOVERNING LAW AND DISPUTE RESOLUTION":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "GOVERNING_LAW"
+                    }
+                )
+
+            if title_upper == "GOVERNING LAW":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "GOVERNING_LAW"
+                    }
+                )
+
+            if title_upper == "DISPUTE RESOLUTION":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "DISPUTE_RESOLUTION"
+                    }
+                )
+
+            if title_upper == "CANCELLATION":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "CANCELLATION"
+                    }
+                )
+
+            if title_upper == "EMPLOYMENT":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "EMPLOYMENT"
+                    }
+                )
+
+            if title_upper == "FORCE MAJEURE":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "FORCE_MAJEURE"
+                    }
+                )
+
+            if title_upper == "ASSIGNMENT":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "ASSIGNMENT"
+                    }
+                )
+
+            if title_upper == "WARRANTY":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "WARRANTY"
+                    }
+                )
+
+            if title_upper == "INSURANCE":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "INSURANCE"
+                    }
+                )
+
+            if title_upper == "AUDIT":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "AUDIT"
+                    }
+                )
+
+            if title_upper == "RENEWAL":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "RENEWAL"
+                    }
+                )
+
+            if title_upper == "INTELLECTUAL PROPERTY":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "INTELLECTUAL_PROPERTY"
+                    }
+                )
+
+            if title_upper == "DATA PROTECTION":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "DATA_PROTECTION"
+                    }
+                )
+
+            if title_upper == "SERVICE LEVELS":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "SERVICE_LEVELS"
+                    }
+                )
+
+            if title_upper == "TAXES":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "TAXES"
+                    }
+                )
+
+            if title_upper == "SECURITY":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "SECURITY"
+                    }
+                )
+
+            if title_upper == "COMPLIANCE":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "COMPLIANCE"
+                    }
+                )
+
+            if title_upper == "NOTICES":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "NOTICES"
+                    }
+                )
+
+            if title_upper == "DEFINITIONS":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "DEFINITIONS"
+                    }
+                )
+
+            if title_upper == "CONDITIONS":
+                return clause.model_copy(
+                    update={
+                        "clause_type": "CONDITIONS"
+                    }
+                )
+
+        # --------------------------------------------------------------
+        # Unnumbered introductory/document-identification text
+        # --------------------------------------------------------------
+
+        if (
+            clause.clause_number is None
+            and clause.title is None
+        ):
+            return clause.model_copy(
+                update={
+                    "clause_type": "GENERAL"
+                }
+            )
+
+        # --------------------------------------------------------------
         # Phase 1: high-confidence primary legal purpose
         # --------------------------------------------------------------
 
@@ -644,6 +857,7 @@ class ClauseClassifierService:
         )
 
         if primary_type:
+
             return clause.model_copy(
                 update={
                     "clause_type": primary_type,
@@ -661,6 +875,7 @@ class ClauseClassifierService:
             score = 0.0
 
             for keyword, weight in keywords:
+
                 score += cls._keyword_score(
                     text,
                     keyword,
@@ -671,11 +886,14 @@ class ClauseClassifierService:
                 scores[clause_type] = score
 
         if scores:
+
             best_type = max(
                 scores,
                 key=scores.get,
             )
+
         else:
+
             best_type = "GENERAL"
 
         return clause.model_copy(
@@ -683,6 +901,10 @@ class ClauseClassifierService:
                 "clause_type": best_type,
             }
         )
+
+    # ------------------------------------------------------------------
+    # Classify multiple clauses
+    # ------------------------------------------------------------------
 
     @classmethod
     def classify_many(

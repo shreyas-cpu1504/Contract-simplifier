@@ -9,6 +9,10 @@ class ClauseSegmentationService:
         r"^(\d+(?:\.\d+)*)(?:[\.\)])?\s+(.*)$"
     )
 
+    TOP_LEVEL_NUMBER_PATTERN = re.compile(
+        r"(?m)^\s*(\d+)(?:[\.\)])\s+([^\n]+)"
+    )
+
     @staticmethod
     def segment(text: str) -> list[Clause]:
         if not text or not text.strip():
@@ -16,22 +20,34 @@ class ClauseSegmentationService:
 
         normalized_text = ClauseSegmentationService._normalize(text)
 
-        blocks = ClauseSegmentationService._split_into_blocks(
-            normalized_text
+        # ---------------------------------------------------------
+        # IMPORTANT:
+        # For numbered contracts, use the numbered sections as
+        # the primary segmentation structure.
+        #
+        # This prevents OCR-created blank lines from splitting
+        # one contractual section into multiple clauses.
+        # ---------------------------------------------------------
+
+        numbered_sections = (
+            ClauseSegmentationService._split_numbered_contract(
+                normalized_text
+            )
         )
 
-        # If there is no paragraph structure, detect whether
-        # the document contains numbered contract clauses.
-        if len(blocks) == 1:
-            blocks = ClauseSegmentationService._split_flat_contract(
-                blocks[0]
+        if numbered_sections:
+            blocks = numbered_sections
+        else:
+            blocks = ClauseSegmentationService._split_into_blocks(
+                normalized_text
             )
 
-        # Merge numbered headings with the content that follows
-        # them when headings and content exist in separate blocks.
-        blocks = ClauseSegmentationService._merge_numbered_headings(
-            blocks
-        )
+            if len(blocks) == 1:
+                blocks = (
+                    ClauseSegmentationService._split_into_sentences(
+                        blocks[0]
+                    )
+                )
 
         clauses = []
         current_sections = {}
@@ -45,6 +61,15 @@ class ClauseSegmentationService:
 
             if clause:
                 clauses.append(clause)
+
+                if (
+                    clause.clause_number
+                    and clause.title
+                    and "." not in clause.clause_number
+                ):
+                    current_sections[
+                        clause.clause_number
+                    ] = clause.title
 
         return clauses
 
@@ -75,19 +100,68 @@ class ClauseSegmentationService:
         return normalized.strip()
 
     @staticmethod
-    def _split_into_blocks(text: str) -> list[str]:
+    def _split_numbered_contract(text: str) -> list[str]:
         """
-        Split text using blank lines.
+        Split a contract using top-level numbered headings.
 
         Example:
 
-            1. Payment
-            Payment text.
+            Introduction...
 
-            2. Termination
-            Termination text.
+            1. SCOPE OF SERVICES
+            Company agrees...
 
-        becomes two blocks.
+            2. PAYMENT TERMS
+            Client shall pay...
+
+        becomes:
+
+            Introduction...
+
+            1. SCOPE OF SERVICES
+            Company agrees...
+
+            2. PAYMENT TERMS
+            Client shall pay...
+        """
+
+        matches = list(
+            ClauseSegmentationService.TOP_LEVEL_NUMBER_PATTERN.finditer(
+                text
+            )
+        )
+
+        # A single numbered item is not enough to confidently
+        # treat the entire document as a numbered contract.
+        if len(matches) < 2:
+            return []
+
+        blocks = []
+
+        # Ignore introductory text before the first numbered section.
+#
+# Contract titles, parties, addresses, and execution language
+# before section 1 are document-level information, not clauses.
+
+        for index, match in enumerate(matches):
+            start = match.start()
+
+            if index + 1 < len(matches):
+                end = matches[index + 1].start()
+            else:
+                end = len(text)
+
+            block = text[start:end].strip()
+
+            if block:
+                blocks.append(block)
+
+        return blocks
+
+    @staticmethod
+    def _split_into_blocks(text: str) -> list[str]:
+        """
+        Split unnumbered contract text using blank lines.
         """
 
         raw_blocks = re.split(
@@ -103,9 +177,13 @@ class ClauseSegmentationService:
             if not block:
                 continue
 
+            # OCR may represent bullets using unusual characters.
             # Bullet/list items belong to the preceding clause.
             if (
-                re.match(r"^[-*•]\s+", block)
+                re.match(
+                    r"^[-*•â€¢°¢]\s+",
+                    block,
+                )
                 and blocks
             ):
                 blocks[-1] = (
@@ -119,28 +197,8 @@ class ClauseSegmentationService:
     @staticmethod
     def _split_flat_contract(text: str) -> list[str]:
         """
-        Split contract text that contains numbered clauses but
-        does not contain blank lines between clauses.
-
-        Example:
-
-            1. Payment
-            The Customer shall pay the invoice within 30 days.
-            2. Termination
-            Either party may terminate this agreement upon written notice.
-            3. Liability
-            The Customer shall have unlimited liability for all losses.
-
-        becomes:
-
-            1. Payment
-            The Customer shall pay the invoice within 30 days.
-
-            2. Termination
-            Either party may terminate this agreement upon written notice.
-
-            3. Liability
-            The Customer shall have unlimited liability for all losses.
+        Fallback for contracts where numbered headings occur
+        without useful paragraph structure.
         """
 
         text = text.strip()
@@ -148,17 +206,6 @@ class ClauseSegmentationService:
         if not text:
             return []
 
-        # Split immediately before a numbered clause heading.
-        #
-        # (?m) = multiline mode
-        # ^    = beginning of a line
-        # \d+  = clause number
-        #
-        # Supports:
-        # 1. Payment
-        # 2) Termination
-        # 3 Liability
-        # 1.1 Definitions
         parts = re.split(
             r"(?m)(?=^\d+(?:\.\d+)*[\.)]?\s+)",
             text,
@@ -170,8 +217,6 @@ class ClauseSegmentationService:
             if part.strip()
         ]
 
-        # If numbered structure wasn't detected,
-        # use sentence-level segmentation.
         if len(blocks) <= 1:
             return ClauseSegmentationService._split_into_sentences(
                 text
@@ -184,20 +229,9 @@ class ClauseSegmentationService:
         blocks: list[str],
     ) -> list[str]:
         """
-        Merge a numbered heading with the following block.
+        Merge numbered headings with the following block.
 
-        Example:
-
-            Block 1:
-                1. Payment
-
-            Block 2:
-                The Customer shall pay...
-
-        becomes:
-
-            1. Payment
-            The Customer shall pay...
+        Kept for compatibility with existing code/tests.
         """
 
         merged = []
@@ -222,7 +256,6 @@ class ClauseSegmentationService:
                 number = match.group(1)
                 heading = match.group(2).strip()
 
-                # Short numbered heading.
                 if (
                     len(heading) <= 100
                     and any(
@@ -247,8 +280,7 @@ class ClauseSegmentationService:
     @staticmethod
     def _split_into_sentences(text: str) -> list[str]:
         """
-        Fallback for unstructured text where no numbered
-        contract structure exists.
+        Fallback for unstructured text.
         """
 
         sentences = re.split(
@@ -297,18 +329,17 @@ class ClauseSegmentationService:
             )
 
             # -------------------------------------------------
-            # Top-level numbered clause
+            # Top-level numbered section
             #
             # Example:
             #
-            # 1. Payment
-            # The Customer shall pay...
+            # 1. PAYMENT TERMS
+            # The Client shall pay...
             #
-            # We want:
+            # becomes:
             #
-            # clause_number = "1"
-            # title = "Payment"
-            # text = "The Customer shall pay..."
+            # title = PAYMENT TERMS
+            # text = The Client shall pay...
             # -------------------------------------------------
 
             if (
@@ -335,11 +366,7 @@ class ClauseSegmentationService:
                 )
 
             # -------------------------------------------------
-            # Numbered clause without a separate heading
-            #
-            # Example:
-            #
-            # 1. The Customer shall pay...
+            # Numbered clause without separate heading
             # -------------------------------------------------
 
             if len(lines) == 1:
@@ -375,7 +402,7 @@ class ClauseSegmentationService:
         ):
             return None
 
-        # Unnumbered clause.
+        # Unnumbered clause / introductory content.
         return Clause(
             clause_id=f"clause-{order}",
             title=None,

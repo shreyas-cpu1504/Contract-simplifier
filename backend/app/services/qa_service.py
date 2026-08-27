@@ -6,6 +6,7 @@ from app.schemas.qa import (
 from app.services.retrieval_service import (
     RetrievalService,
 )
+from app.services.gemini_service import GeminiService
 
 
 class QAService:
@@ -48,11 +49,14 @@ class QAService:
                 confidence=0.0,
             )
 
-        answer = cls._build_grounded_answer(
+        answer = cls._generate_grounded_answer(
             question=question,
             retrieved=retrieved,
         )
 
+        # This is a retrieval-based confidence proxy.
+        # It represents how strongly the top retrieved clause
+        # matches the user's question, not Gemini's probability.
         confidence = min(
             max(retrieved[0].score, 0.0),
             1.0,
@@ -67,20 +71,53 @@ class QAService:
         )
 
     @staticmethod
-    def _build_grounded_answer(
+    def _generate_grounded_answer(
         question: str,
         retrieved,
     ) -> str:
 
-        primary = retrieved[0]
+        context_parts = []
 
-        clause_label = (
-            f"Clause {primary.clause_number}"
-            if primary.clause_number
-            else f"Clause {primary.clause_id}"
-        )
+        for item in retrieved:
+            clause_label = (
+                f"Clause {item.clause_number}"
+                if item.clause_number
+                else f"Clause {item.clause_id}"
+            )
 
-        return (
-            f"Based on {clause_label}: "
-            f"{primary.text.strip()}"
-        )
+            title = item.title or "Untitled"
+
+            context_parts.append(
+                f"{clause_label} - {title}\n"
+                f"{item.text}"
+            )
+
+        context = "\n\n".join(context_parts)
+
+        prompt = f"""
+You are a contract analysis assistant.
+
+Answer the user's question using ONLY the contract clauses
+provided below.
+
+Do not invent facts.
+Do not use outside legal information.
+Do not make assumptions that are not supported by the clauses.
+
+If the provided clauses do not contain enough information to
+answer the question, clearly say that the contract information
+provided is insufficient.
+
+Explain the answer in simple language suitable for a
+non-lawyer.
+
+User question:
+{question}
+
+Relevant contract clauses:
+{context}
+
+Return only the answer to the user's question.
+"""
+
+        return GeminiService.generate(prompt)

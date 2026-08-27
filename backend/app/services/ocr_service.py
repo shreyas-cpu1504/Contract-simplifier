@@ -9,22 +9,69 @@ class OCRService:
     """OCR service for images and scanned PDF pages."""
 
     @staticmethod
-    def extract_from_image(content: bytes) -> str:
+    def _normalize_text(text: str) -> str:
+        """
+        Clean common OCR encoding artifacts while preserving
+        the actual contract text.
+        """
+
+        if not text:
+            return ""
+
+        replacements = {
+            "Â°": "•",
+            "Â¢": "•",
+            "Â·": "•",
+            "â€¢": "•",
+            "â€“": "–",
+            "â€”": "—",
+            "â€™": "’",
+            "â€œ": "“",
+            "â€": "”",
+            "â€˜": "‘",
+            "Â": "",
+            "°": "•",
+            "¢": "•",
+        }
+
+        for old, new in replacements.items():
+            text = text.replace(old, new)
+
+        # Normalize excessive whitespace without destroying
+        # paragraph structure.
+        lines = []
+
+        for line in text.splitlines():
+            line = line.strip()
+
+            if line:
+                lines.append(line)
+            elif lines and lines[-1] != "":
+                lines.append("")
+
+        return "\n".join(lines).strip()
+
+    @classmethod
+    def extract_from_image(cls, content: bytes) -> str:
         if not content:
             raise ValueError("Image content is empty.")
 
         try:
             image = Image.open(BytesIO(content))
-            text = pytesseract.image_to_string(image)
+
+            text = pytesseract.image_to_string(
+                image
+            )
+
         except Exception as exc:
             raise ValueError(
                 f"Failed to perform OCR on image: {exc}"
             ) from exc
 
-        return text.strip()
+        return cls._normalize_text(text)
 
-    @staticmethod
-    def extract_from_pdf(content: bytes) -> str:
+    @classmethod
+    def extract_from_pdf(cls, content: bytes) -> str:
         if not content:
             raise ValueError("PDF content is empty.")
 
@@ -49,10 +96,15 @@ class OCRService:
                         pixmap.samples,
                     )
 
-                    text = pytesseract.image_to_string(image).strip()
+                    text = pytesseract.image_to_string(
+                        image
+                    )
+
+                    text = cls._normalize_text(text)
 
                     if text:
                         pages.append(text)
+
             finally:
                 document.close()
 
