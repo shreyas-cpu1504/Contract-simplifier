@@ -400,6 +400,13 @@ class ClauseAnalysisService:
             r"\bshall\s+be\s+resolved\s+by\b",
             r"\bresolved\s+by\s+arbitration\b",
             r"\barbitration\b",
+            
+            # Payment-method instructions should remain under
+            # financial/payment analysis rather than obligations.
+            r"\bpayments?\s+shall\s+be\s+made\s+to\b",
+            r"\bpayments?\s+must\s+be\s+made\s+to\b",
+            r"\bpayment\s+shall\s+be\s+made\s+in\s+the\s+following\s+manner\b",
+            r"\bpayment\s+must\s+be\s+made\s+in\s+the\s+following\s+manner\b",
         ]
 
         result.obligations = cls._extract_by_patterns(
@@ -477,10 +484,14 @@ class ClauseAnalysisService:
         # Financial
         result.monetary_terms = cls._extract_money(text)
 
-        result.percentages = cls._regex_extract(
-            text,
-            cls.PERCENT_PATTERN,
-        )
+        result.percentages = [
+            match.group(0).strip()
+            for match in re.finditer(
+                cls.PERCENT_PATTERN,
+                text,
+                re.IGNORECASE,
+            )
+        ]
 
         result.currencies = cls._extract_currencies(text)
 
@@ -492,8 +503,10 @@ class ClauseAnalysisService:
                 "charge",
                 "charges",
                 "commission",
-                "payment",
-                "payments",
+                "payment amount",
+                "payment of",
+                "total payment",
+                "total fee",
             ],
         )
         result.penalties = cls._keyword_sentences(
@@ -641,18 +654,17 @@ class ClauseAnalysisService:
 
         # Dispute / enforcement
         result.dispute_terms = cls._keyword_sentences(
-            text,
-            [
-                "dispute",
-                "disputes",
-                "litigation",
-                "court proceedings",
-                "legal proceedings",
-                "arising out of or in connection with",
-                "settled by arbitration",
-                "resolved by arbitration",
-            ],
-        )
+        text,
+    [
+        "dispute",
+        "disputes",
+        "litigation",
+        "court proceedings",
+        "legal proceedings",
+        "settled by arbitration",
+        "resolved by arbitration",
+    ],
+)
 
         result.jurisdiction = cls._extract_jurisdiction(text)
 
@@ -1323,141 +1335,100 @@ class ClauseAnalysisService:
     @classmethod
     def _extract_organizations(cls, text: str) -> list[str]:
         """
-        Extract likely named organizations.
+        Extract named organizations using legal-entity suffixes.
 
-        Generic contractual party labels such as Client, Company,
-        Party, Customer, Employer, and Employee are not treated as
-        organization names.
+        Examples:
+            ABC Solutions Pvt. Ltd.
+            Tata Consultancy Services Limited
+            Microsoft Corporation
+            HDFC Bank
         """
 
+        if not text:
+            return []
+
         patterns = [
-            r"\b[A-Z][A-Za-z0-9&.,'()-]*(?:\s+[A-Z][A-Za-z0-9&.,'()-]*){0,5}\s+(?:"
-            r"Limited|Ltd\.?|"
-            r"Corporation|Corp\.?|"
-            r"Inc\.?|"
-            r"LLC|"
-            r"LLP|"
-            r"Pvt\.?\s+Ltd\.?|"
-            r"Private\s+Limited|"
-            r"PLC|"
-            r"Bank|"
-            r"University|"
-            r"Institute|"
-            r"Foundation|"
-            r"Authority"
-            r")\b"
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}Pvt\.?\s+Ltd\.?\b",
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}Private\s+Limited\b",
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}Public\s+Limited\b",
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}Limited\b",
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}Ltd\.?\b",
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}Corporation\b",
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}Corp\.?\b",
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}Inc\.?\b",
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}(?:LLC|LLP|PLC)\b",
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}Bank\b",
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}University\b",
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}Institute\b",
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}Foundation\b",
+            r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){1,6}Authority\b",
         ]
 
         found = []
 
         for pattern in patterns:
-            found.extend(
-                cls._regex_extract(text, pattern)
-            )
-
-        blocked = {
-            "The Company",
-            "The Client",
-            "The Agreement",
-            "This Agreement",
-            "Either Party",
-            "This Clause",
-            "The Court",
-            "The Government",
-        }
-
-        generic_party_words = {
-            "client",
-            "company",
-            "party",
-            "customer",
-            "employer",
-            "employee",
-            "borrower",
-            "lender",
-            "seller",
-            "buyer",
-            "supplier",
-            "vendor",
-            "contractor",
-            "consultant",
-            "licensor",
-            "licensee",
-        }
-
-        cleaned = []
-
-        for value in found:
-            value = value.strip()
-
-            if value in blocked:
+            try:
+                matches = re.finditer(
+                    pattern,
+                    text,
+                )
+            except re.error:
                 continue
 
-            words = value.split()
+            for match in matches:
+                value = match.group(0).strip()
+                value = re.sub(r"\s+", " ", value)
+                value = value.rstrip(".,;:")
 
-            # Remove a candidate if it consists only of generic
-            # contractual party terminology.
-            meaningful_words = [
-                word.strip(".,")
-                for word in words
-                if word.strip(".,").casefold()
-                not in generic_party_words
-            ]
+                if not value:
+                    continue
 
-            if not meaningful_words:
-                continue
+                lower_value = value.casefold()
 
-            # Avoid sentences that merely contain a generic party
-            # label before an organization-like suffix.
-            lower_value = value.casefold()
+                # Reject generic contractual phrases.
+                if lower_value in {
+                    "the company",
+                    "the bank",
+                    "the authority",
+                    "the institute",
+                    "the university",
+                    "the foundation",
+                }:
+                    continue
 
-            if (
-                "this agreement is between" in lower_value
-                or "agreement is between" in lower_value
-            ):
-                continue
+                # Reject candidates containing obvious sentence fragments.
+                blocked_phrases = [
+                    "made by and between",
+                    "payments shall",
+                    "payment shall",
+                    "shall be made",
+                    "account specified",
+                    "this agreement",
+                    "the client",
+                    "the company",
+                ]
 
-            cleaned.append(value)
+                if any(
+                    phrase in lower_value
+                    for phrase in blocked_phrases
+                ):
+                    continue
 
-        # Final safety filter for generic contractual party labels.
-        generic_only = {
-            "party",
-            "parties",
-            "client",
-            "company",
-            "customer",
-            "employer",
-            "employee",
-            "borrower",
-            "lender",
-            "seller",
-            "buyer",
-            "supplier",
-            "vendor",
-            "contractor",
-            "consultant",
-            "licensor",
-            "licensee",
-        }
+                found.append(value)
 
-        cleaned = [
-            value
-            for value in cleaned
-            if value.strip().casefold() not in generic_only
-        ]
-
-        return cls._unique(cleaned)
+        return cls._unique(found)
 
 
     @classmethod
     def _extract_authorities(cls, text: str) -> list[str]:
         """
-        Extract sentences that refer to genuine governmental,
+        Extract sentences referring to genuine governmental,
         regulatory, judicial, or public authorities.
-
-        Ordinary commercial references such as a bank account
-        should not be treated as authorities.
         """
+
+        if not text:
+            return []
+
         found = cls._keyword_sentences(
             text,
             [
@@ -1470,6 +1441,7 @@ class ClauseAnalysisService:
                 "regulatory authority",
                 "commission",
                 "court",
+                "courts",
                 "tribunal",
                 "municipality",
                 "local authority",
@@ -1484,6 +1456,7 @@ class ClauseAnalysisService:
         for sentence in found:
             lower_sentence = sentence.casefold()
 
+            # Commercial banking references are not authorities.
             if (
                 "bank account" in lower_sentence
                 or "bank details" in lower_sentence
@@ -1514,6 +1487,16 @@ class ClauseAnalysisService:
 
     @classmethod
     def _extract_money(cls, text: str) -> list[str]:
+        """
+        Extract monetary values such as:
+
+            INR 75,000
+            USD 1,500
+            Rs. 75,000
+            $1,500
+            75,000 rupees
+        """
+
         return cls._regex_extract(
             text,
             cls.MONEY_PATTERN,
@@ -1521,6 +1504,10 @@ class ClauseAnalysisService:
 
     @classmethod
     def _extract_currencies(cls, text: str) -> list[str]:
+        """
+        Extract currency identifiers and currency names.
+        """
+
         patterns = [
             r"\bINR\b",
             r"\bUSD\b",
@@ -1550,6 +1537,26 @@ class ClauseAnalysisService:
 
         return cls._unique(found)
 
+    @classmethod
+    def _extract_quantities(cls, text: str) -> list[str]:
+        patterns = [
+            r"\b\d+(?:\.\d+)?\s*(?:kg|kgs|kilograms?)\b",
+            r"\b\d+(?:\.\d+)?\s*(?:g|grams?)\b",
+            r"\b\d+(?:\.\d+)?\s*(?:km|kilometers?|kilometres?)\b",
+            r"\b\d+(?:\.\d+)?\s*(?:m|meters?|metres?)\b",
+            r"\b\d+(?:\.\d+)?\s*(?:litres?|liters?|L)\b",
+            r"\b\d+(?:\.\d+)?\s*(?:units?|items?|shares?)\b",
+        ]
+
+        found = []
+
+        for pattern in patterns:
+            found.extend(
+                cls._regex_extract(text, pattern)
+            )
+
+        return cls._unique(found)
+    
     @classmethod
     def _extract_quantities(cls, text: str) -> list[str]:
         patterns = [
@@ -2635,7 +2642,6 @@ class ClauseAnalysisService:
     # ================================================================
     # Batch analysis
     # ================================================================
-
     @classmethod
     def analyze(cls, clause):
         return cls.analyze_clause(clause)
@@ -2649,4 +2655,5 @@ class ClauseAnalysisService:
             cls.analyze_clause(clause)
             for clause in clauses
         ]
+
 

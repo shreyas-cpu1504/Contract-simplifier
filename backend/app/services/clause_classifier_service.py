@@ -1,5 +1,6 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import Any
 
 from app.schemas.clause import Clause
 
@@ -15,9 +16,9 @@ class RetrievedClause:
 
 class ClauseClassifierService:
 
-    # ------------------------------------------------------------------
-    # High-confidence primary legal patterns
-    # ------------------------------------------------------------------
+    # ================================================================
+    # HIGH-CONFIDENCE PRIMARY LEGAL PATTERNS
+    # ================================================================
 
     PRIMARY_PATTERNS = {
 
@@ -60,16 +61,21 @@ class ClauseClassifierService:
         ],
 
         "PAYMENT": [
-            r"\bshall\s+pay\b",
-            r"\bmust\s+pay\b",
-            r"\bwill\s+pay\b",
-            r"\bpayable\s+to\b",
-            r"\bpayment\s+of\b",
             r"\bpayment\s+terms\b",
             r"\bpayment\s+schedule\b",
             r"\bamount\s+payable\b",
             r"\bfees?\s+(?:shall|must|will)\s+be\s+paid\b",
             r"\binvoice\s+(?:shall|must|will)\s+be\s+paid\b",
+            r"\binterest\s+rate\b",
+            r"\binterest\s+(?:at|on)\b",
+            r"\brepayment\b",
+            r"\brepay\b",
+            r"\binstallments?\b",
+            r"\binstalments?\b",
+            r"\bmonthly\s+installment\b",
+            r"\bmonthly\s+instalment\b",
+            r"\bequated\s+monthly\s+installment\b",
+            r"\bemi\b",
         ],
 
         "CONFIDENTIALITY": [
@@ -99,6 +105,8 @@ class ClauseClassifierService:
             r"\bright\s+to\s+assign\b",
             r"\bassignment\s+of\s+this\s+agreement\b",
             r"\bassign\s+or\s+transfer\b",
+            r"\bassign(?:ment)?\s+of\s+(?:the\s+)?loan\b",
+            r"\bsell(?:s)?\s*/?\s*assign(?:s)?\b",
         ],
 
         "GOVERNING_LAW": [
@@ -115,6 +123,7 @@ class ClauseClassifierService:
             r"\bdispute\s+resolution\b",
             r"\bsettled\s+by\s+arbitration\b",
             r"\bmediation\b",
+            r"\barbitration\b",
         ],
 
         "WARRANTY": [
@@ -128,13 +137,17 @@ class ClauseClassifierService:
         "REPRESENTATIONS_WARRANTIES": [
             r"\brepresents\s+and\s+warrants\b",
             r"\brepresentation(?:s)?\s+and\s+warrant(?:y|ies)\b",
+            r"\brepresentations?\s+and\s+warrant(?:y|ies)\b",
             r"\bfull\s+authority\s+to\s+enter\b",
             r"\bduly\s+authorized\s+to\s+enter\b",
+            r"\bduly\s+authorised\s+to\s+enter\b",
         ],
 
         "LIABILITY": [
             r"\blimitation\s+of\s+liability\b",
             r"\blimit(?:ation)?\s+.*\bliability\b",
+            r"\bshall\s+not\s+be\s+liable\b",
+            r"\bshall\s+not\s+be\s+responsible\b",
             r"\bshall\s+indemnify\b",
             r"\bindemnif(?:y|ication)\b",
             r"\bhold\s+harmless\b",
@@ -194,6 +207,8 @@ class ClauseClassifierService:
             r"\bGST\b",
             r"\btax\s+liability\b",
             r"\btaxes?\s+(?:shall|must|will)\s+be\s+paid\b",
+            r"\bstamp\s+duty\b",
+            r"\bstamp\s+dut(?:y|ies)\b",
         ],
 
         "SECURITY": [
@@ -202,6 +217,7 @@ class ClauseClassifierService:
             r"\bsecurity\s+controls?\b",
             r"\bcybersecurity\b",
             r"\btechnical\s+and\s+organizational\s+measures\b",
+            r"\btechnical\s+and\s+organisational\s+measures\b",
         ],
 
         "COMPLIANCE": [
@@ -216,6 +232,9 @@ class ClauseClassifierService:
             r"\bnotice\s+shall\s+be\s+given\b",
             r"\bwritten\s+notice\s+shall\s+be\b",
             r"\bnotices?\s+in\s+writing\b",
+            r"\baddress\s+for\s+communication\b",
+            r"\bnotice\s+board\b",
+            r"\bgrievance\s+redressal\b",
         ],
 
         "DEFINITIONS": [
@@ -224,20 +243,31 @@ class ClauseClassifierService:
             r"\bhereinafter\s+referred\s+to\s+as\b",
             r"\bshall\s+mean\b",
             r"\bdefined\s+as\b",
+            r"\bdefined\s+hereinafter\b",
         ],
 
         "CONDITIONS": [
             r"\bconditional\s+upon\b",
-            r"\bsubject\s+to\b",
+            r"\bconditions?\s+precedent\b",
+            r"\bsubject\s+to\s+the\s+condition\b",
             r"\bprovided\s+that\b",
             r"\bupon\s+the\s+occurrence\b",
             r"\bupon\s+satisfaction\b",
         ],
+
+        "COVENANT": [
+            r"\bcovenant(?:s|ed)?\b",
+            r"\bundertakes?\s+that\b",
+            r"\bundertakes?\s+to\b",
+            r"\bundertaking\b",
+            r"\nagrees?\s+to\s+maintain\b",
+            r"\bagrees?\s+to\s+comply\b",
+        ],
     }
 
-    # ------------------------------------------------------------------
-    # Generalized weighted keyword taxonomy
-    # ------------------------------------------------------------------
+    # ================================================================
+    # WEIGHTED KEYWORD TAXONOMY
+    # ================================================================
 
     KEYWORDS = {
 
@@ -253,18 +283,23 @@ class ClauseClassifierService:
         ],
 
         "PAYMENT": [
-            ("pay", 2.0),
-            ("payment", 3.0),
+            ("payment", 4.0),
+            ("payment terms", 6.0),
+            ("payment schedule", 6.0),
             ("invoice", 3.0),
-            ("fee", 2.0),
+            ("fee", 3.0),
+            ("fees", 3.0),
             ("price", 2.0),
-            ("amount", 2.0),
-            ("compensation", 3.0),
-            ("salary", 3.0),
-            ("rent", 3.0),
-            ("interest", 2.5),
-            ("repayment", 3.0),
-            ("repay", 2.5),
+            ("interest rate", 6.0),
+            ("interest", 3.0),
+            ("repayment", 5.0),
+            ("repay", 4.0),
+            ("installment", 5.0),
+            ("instalment", 5.0),
+            ("emi", 6.0),
+            ("principal amount", 5.0),
+            ("amount payable", 5.0),
+            ("charges", 3.0),
         ],
 
         "TERMINATION": [
@@ -297,7 +332,6 @@ class ClauseClassifierService:
             ("third-party claims", 4.0),
             ("third party claims", 4.0),
             ("limitation of liability", 6.0),
-            ("limitation of liabilities", 6.0),
         ],
 
         "GOVERNING_LAW": [
@@ -357,7 +391,8 @@ class ClauseClassifierService:
             ("transfer this agreement", 5.0),
             ("transfer its rights", 4.0),
             ("transfer its obligations", 4.0),
-            ("prior written consent", 2.0),
+            ("assignment of the loan", 6.0),
+            ("sell assign", 6.0),
         ],
 
         "EMPLOYMENT": [
@@ -391,6 +426,7 @@ class ClauseClassifierService:
             ("representation", 4.0),
             ("full authority to enter", 5.0),
             ("duly authorized", 5.0),
+            ("duly authorised", 5.0),
         ],
 
         "FORCE_MAJEURE": [
@@ -465,6 +501,8 @@ class ClauseClassifierService:
             ("notice address", 5.0),
             ("notice shall be given", 5.0),
             ("provided in writing", 3.0),
+            ("address for communication", 6.0),
+            ("notice board", 5.0),
         ],
 
         "COMPLIANCE": [
@@ -484,17 +522,21 @@ class ClauseClassifierService:
             ("withholding tax", 7.0),
             ("goods and services tax", 7.0),
             ("gst", 6.0),
+            ("stamp duty", 7.0),
         ],
 
         "SECURITY": [
-            ("security", 4.0),
-            ("information security", 6.0),
             ("security measures", 6.0),
+            ("information security", 6.0),
             ("security controls", 6.0),
             ("technical and organizational measures", 7.0),
+            ("technical and organisational measures", 7.0),
             ("cybersecurity", 7.0),
             ("information security measures", 7.0),
             ("security incident", 6.0),
+            ("security interest", 7.0),
+            ("collateral", 7.0),
+            ("continuing security", 7.0),
         ],
 
         "DEFINITIONS": [
@@ -506,17 +548,17 @@ class ClauseClassifierService:
             ("for purposes of this agreement", 6.0),
             ("for the purposes of this agreement", 6.0),
             ("hereinafter referred to as", 7.0),
+            ("defined hereinafter", 7.0),
         ],
 
         "CONDITIONS": [
-            ("condition", 5.0),
-            ("conditions", 5.0),
             ("conditional upon", 7.0),
-            ("subject to", 5.0),
+            ("conditions precedent", 7.0),
+            ("subject to the condition", 6.0),
             ("provided that", 5.0),
             ("provided however", 5.0),
-            ("upon the occurrence", 5.0),
-            ("upon satisfaction", 5.0),
+            ("upon the occurrence", 6.0),
+            ("upon satisfaction", 6.0),
         ],
 
         "COVENANT": [
@@ -524,7 +566,8 @@ class ClauseClassifierService:
             ("covenants", 6.0),
             ("agrees to maintain", 4.0),
             ("agrees to comply", 4.0),
-            ("undertakes to", 5.0),
+            ("undertakes to", 6.0),
+            ("undertakes that", 6.0),
             ("undertaking", 5.0),
         ],
 
@@ -538,9 +581,45 @@ class ClauseClassifierService:
         ],
     }
 
-    # ------------------------------------------------------------------
-    # Keyword scoring
-    # ------------------------------------------------------------------
+    # ================================================================
+    # EXPLICIT TITLES
+    # ================================================================
+
+    TITLE_CLASSIFICATIONS = {
+        "GENERAL": "GENERAL",
+        "LIABILITY": "LIABILITY",
+        "PAYMENT": "PAYMENT",
+        "PAYMENT TERMS": "PAYMENT",
+        "CONFIDENTIALITY": "CONFIDENTIALITY",
+        "TERM AND TERMINATION": "TERMINATION",
+        "TERMINATION": "TERMINATION",
+        "SCOPE OF SERVICES": "OBLIGATION",
+        "GOVERNING LAW": "GOVERNING_LAW",
+        "GOVERNING LAW AND DISPUTE RESOLUTION": "GOVERNING_LAW",
+        "DISPUTE RESOLUTION": "DISPUTE_RESOLUTION",
+        "CANCELLATION": "CANCELLATION",
+        "EMPLOYMENT": "EMPLOYMENT",
+        "FORCE MAJEURE": "FORCE_MAJEURE",
+        "ASSIGNMENT": "ASSIGNMENT",
+        "WARRANTY": "WARRANTY",
+        "INSURANCE": "INSURANCE",
+        "AUDIT": "AUDIT",
+        "RENEWAL": "RENEWAL",
+        "INTELLECTUAL PROPERTY": "INTELLECTUAL_PROPERTY",
+        "DATA PROTECTION": "DATA_PROTECTION",
+        "SERVICE LEVELS": "SERVICE_LEVELS",
+        "TAXES": "TAXES",
+        "SECURITY": "SECURITY",
+        "COMPLIANCE": "COMPLIANCE",
+        "NOTICES": "NOTICES",
+        "DEFINITIONS": "DEFINITIONS",
+        "CONDITIONS": "CONDITIONS",
+        "COVENANT": "COVENANT",
+    }
+
+    # ================================================================
+    # KEYWORD SCORING
+    # ================================================================
 
     @staticmethod
     def _keyword_score(
@@ -549,84 +628,193 @@ class ClauseClassifierService:
         weight: float,
     ) -> float:
 
-        pattern = rf"\b{re.escape(keyword.lower())}\b"
+        pattern = rf"(?<!\w){re.escape(keyword.lower())}(?!\w)"
 
-        return len(
-            re.findall(
-                pattern,
-                text,
-                flags=re.IGNORECASE,
+        return (
+            len(
+                re.findall(
+                    pattern,
+                    text.lower(),
+                    flags=re.IGNORECASE,
+                )
             )
-        ) * weight
+            * weight
+        )
 
-    # ------------------------------------------------------------------
-    # Primary classification
-    # ------------------------------------------------------------------
+    # ================================================================
+    # PRIMARY CLASSIFICATION
+    # ================================================================
 
     @classmethod
     def _primary_classification(
         cls,
         text: str,
     ) -> str | None:
-        """
-        Identify high-confidence legal purpose before broad
-        keyword scoring.
 
-        Patterns are intentionally ordered so highly distinctive
-        legal concepts are evaluated before broader categories.
-        """
+        text_lower = text.lower()
 
-        priority_order = [
-            "FORCE_MAJEURE",
-            "REPRESENTATIONS_WARRANTIES",
+        # Strong patterns are scored rather than simply returning
+        # the first category encountered.
+        scores: dict[str, float] = {}
 
-            # Cancellation must be checked before termination
-            # and notices because cancellation clauses commonly
-            # contain termination-like language and written notice.
-            "CANCELLATION",
+        for clause_type, patterns in cls.PRIMARY_PATTERNS.items():
 
-            "TERMINATION",
-            "EMPLOYMENT",
-            "ASSIGNMENT",
-            "GOVERNING_LAW",
-            "DISPUTE_RESOLUTION",
-            "CONFIDENTIALITY",
-            "PAYMENT",
-            "WARRANTY",
-            "LIABILITY",
-            "INSURANCE",
-            "AUDIT",
-            "RENEWAL",
-            "INTELLECTUAL_PROPERTY",
-            "DATA_PROTECTION",
-            "SERVICE_LEVELS",
-            "TAXES",
-            "SECURITY",
-            "COMPLIANCE",
-            "NOTICES",
-            "DEFINITIONS",
-            "CONDITIONS",
-        ]
+            score = 0.0
 
-        for clause_type in priority_order:
+            for pattern in patterns:
 
-            for pattern in cls.PRIMARY_PATTERNS.get(
-                clause_type,
-                [],
-            ):
-
-                if re.search(
+                matches = re.findall(
                     pattern,
-                    text,
+                    text_lower,
                     flags=re.IGNORECASE,
-                ):
-                    return clause_type
+                )
 
-        return None
+                if matches:
+                    # Strong legal patterns receive a high score.
+                    score += len(matches) * 10.0
 
-    # ------------------------------------------------------------------
-    # Single clause classification
-    # ------------------------------------------------------------------
+            if score > 0:
+                scores[clause_type] = score
+
+        if not scores:
+            return None
+
+        # Additional domain-specific tie breakers.
+        #
+        # Liability should beat generic payment language.
+        if (
+            "LIABILITY" in scores
+            and re.search(
+                r"\bshall\s+not\s+be\s+liable\b|\blimitation\s+of\s+liability\b",
+                text_lower,
+                re.IGNORECASE,
+            )
+        ):
+            return "LIABILITY"
+
+        # Assignment should beat generic payment language when
+        # assignment/transfer of a loan is the actual subject.
+        if (
+            "ASSIGNMENT" in scores
+            and re.search(
+                r"\bassign(?:ment)?\b|\btransfer\b|\bsell(?:s)?\s*/?\s*assign",
+                text_lower,
+                re.IGNORECASE,
+            )
+        ):
+            return "ASSIGNMENT"
+
+        # Representations and warranties should beat generic warranty.
+        if "REPRESENTATIONS_WARRANTIES" in scores:
+            return "REPRESENTATIONS_WARRANTIES"
+
+        return max(
+            scores,
+            key=scores.get,
+        )
+
+    # ================================================================
+    # CLAUSE OBJECT COPY
+    # ================================================================
+
+    @staticmethod
+    def _copy_with_type(
+        clause: Any,
+        clause_type: str,
+    ) -> Clause:
+
+        # Normal application path: Pydantic Clause.
+        if hasattr(clause, "model_copy"):
+            return clause.model_copy(
+                update={
+                    "clause_type": clause_type,
+                }
+            )
+
+        # Compatibility with older Pydantic versions.
+        if hasattr(clause, "copy"):
+            try:
+                return clause.copy(
+                    update={
+                        "clause_type": clause_type,
+                    }
+                )
+            except TypeError:
+                pass
+
+        # Dataclass compatibility.
+        if hasattr(clause, "__dataclass_fields__"):
+            try:
+                return replace(
+                    clause,
+                    clause_type=clause_type,
+                )
+            except Exception:
+                pass
+
+        # Generic Python object compatibility.
+        try:
+            data = dict(vars(clause))
+            data["clause_type"] = clause_type
+            return Clause(**data)
+
+        except Exception as exc:
+            raise TypeError(
+                "ClauseClassifierService.classify() expects a "
+                "Pydantic Clause or a compatible object."
+            ) from exc
+
+    # ================================================================
+    # CHECK WHETHER TITLE IS A REAL TITLE
+    # ================================================================
+
+    @staticmethod
+    def _is_real_title(
+        title: str | None,
+    ) -> bool:
+
+        if not title:
+            return False
+
+        title = " ".join(
+            title.strip().split()
+        )
+
+        if not title:
+            return False
+
+        upper = title.upper()
+
+        # Known clean section titles.
+        if upper in ClauseClassifierService.TITLE_CLASSIFICATIONS:
+            return True
+
+        # If the title is actually a long sentence extracted from the
+        # beginning of the clause, do not treat it as a title.
+        if len(title) > 80:
+            return False
+
+        # Sentence-like titles usually contain these indicators.
+        if re.search(
+            r"\b(?:shall|must|will|agrees?|undertakes?|hereby|borrower|company|client)\b",
+            title,
+            re.IGNORECASE,
+        ):
+            return False
+
+        # A title containing a colon can still be legitimate.
+        if title.endswith(":"):
+            return True
+
+        # Short uppercase headings are generally safe.
+        if title == upper and len(title.split()) <= 8:
+            return True
+
+        return False
+
+    # ================================================================
+    # SINGLE CLAUSE CLASSIFICATION
+    # ================================================================
 
     @classmethod
     def classify(
@@ -634,239 +822,89 @@ class ClauseClassifierService:
         clause: Clause,
     ) -> Clause:
 
-        text = " ".join(
-            filter(
-                None,
-                [
-                    clause.title,
-                    clause.text,
-                ],
+        title = getattr(
+            clause,
+            "title",
+            None,
+        )
+
+        body = getattr(
+            clause,
+            "text",
+            "",
+        ) or ""
+
+        clause_number = getattr(
+            clause,
+            "clause_number",
+            None,
+        )
+
+        # ------------------------------------------------------------
+        # Phase 0: explicit real section titles
+        # ------------------------------------------------------------
+
+        if cls._is_real_title(title):
+
+            title_upper = title.strip().upper()
+
+            explicit_type = cls.TITLE_CLASSIFICATIONS.get(
+                title_upper
             )
-        ).lower()
 
-        # --------------------------------------------------------------
-        # Phase 0: explicit section titles
-        # --------------------------------------------------------------
-
-        if clause.title:
-
-            title_upper = clause.title.strip().upper()
-
-            if title_upper == "GENERAL":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "GENERAL"
-                    }
+            if explicit_type:
+                return cls._copy_with_type(
+                    clause,
+                    explicit_type,
                 )
 
-            if title_upper == "LIABILITY":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "LIABILITY"
-                    }
-                )
-
-            if title_upper == "PAYMENT TERMS":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "PAYMENT"
-                    }
-                )
-
-            if title_upper == "CONFIDENTIALITY":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "CONFIDENTIALITY"
-                    }
-                )
-
-            if title_upper == "TERM AND TERMINATION":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "TERMINATION"
-                    }
-                )
-
-            if title_upper == "SCOPE OF SERVICES":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "OBLIGATION"
-                    }
-                )
-
-            if title_upper == "GOVERNING LAW AND DISPUTE RESOLUTION":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "GOVERNING_LAW"
-                    }
-                )
-
-            if title_upper == "GOVERNING LAW":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "GOVERNING_LAW"
-                    }
-                )
-
-            if title_upper == "DISPUTE RESOLUTION":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "DISPUTE_RESOLUTION"
-                    }
-                )
-
-            if title_upper == "CANCELLATION":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "CANCELLATION"
-                    }
-                )
-
-            if title_upper == "EMPLOYMENT":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "EMPLOYMENT"
-                    }
-                )
-
-            if title_upper == "FORCE MAJEURE":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "FORCE_MAJEURE"
-                    }
-                )
-
-            if title_upper == "ASSIGNMENT":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "ASSIGNMENT"
-                    }
-                )
-
-            if title_upper == "WARRANTY":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "WARRANTY"
-                    }
-                )
-
-            if title_upper == "INSURANCE":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "INSURANCE"
-                    }
-                )
-
-            if title_upper == "AUDIT":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "AUDIT"
-                    }
-                )
-
-            if title_upper == "RENEWAL":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "RENEWAL"
-                    }
-                )
-
-            if title_upper == "INTELLECTUAL PROPERTY":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "INTELLECTUAL_PROPERTY"
-                    }
-                )
-
-            if title_upper == "DATA PROTECTION":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "DATA_PROTECTION"
-                    }
-                )
-
-            if title_upper == "SERVICE LEVELS":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "SERVICE_LEVELS"
-                    }
-                )
-
-            if title_upper == "TAXES":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "TAXES"
-                    }
-                )
-
-            if title_upper == "SECURITY":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "SECURITY"
-                    }
-                )
-
-            if title_upper == "COMPLIANCE":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "COMPLIANCE"
-                    }
-                )
-
-            if title_upper == "NOTICES":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "NOTICES"
-                    }
-                )
-
-            if title_upper == "DEFINITIONS":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "DEFINITIONS"
-                    }
-                )
-
-            if title_upper == "CONDITIONS":
-                return clause.model_copy(
-                    update={
-                        "clause_type": "CONDITIONS"
-                    }
-                )
-
-        # --------------------------------------------------------------
-        # Unnumbered introductory/document-identification text
-        # --------------------------------------------------------------
+        # ------------------------------------------------------------
+        # Unnumbered introductory text
+        # ------------------------------------------------------------
 
         if (
-            clause.clause_number is None
-            and clause.title is None
+            clause_number is None
+            and not title
         ):
-            return clause.model_copy(
-                update={
-                    "clause_type": "GENERAL"
-                }
+            return cls._copy_with_type(
+                clause,
+                "GENERAL",
             )
 
-        # --------------------------------------------------------------
-        # Phase 1: high-confidence primary legal purpose
-        # --------------------------------------------------------------
+        # ------------------------------------------------------------
+        # Build text for semantic classification.
+        #
+        # IMPORTANT:
+        # If title is a sentence extracted from the clause, body is
+        # more trustworthy than the title.
+        # ------------------------------------------------------------
+
+        text = " ".join(
+            part
+            for part in [
+                title if cls._is_real_title(title) else None,
+                body,
+            ]
+            if part
+        )
+
+        # ------------------------------------------------------------
+        # Phase 1: strong legal-purpose classification
+        # ------------------------------------------------------------
 
         primary_type = cls._primary_classification(
             text
         )
 
         if primary_type:
-
-            return clause.model_copy(
-                update={
-                    "clause_type": primary_type,
-                }
+            return cls._copy_with_type(
+                clause,
+                primary_type,
             )
 
-        # --------------------------------------------------------------
-        # Phase 2: generalized weighted keyword classification
-        # --------------------------------------------------------------
+        # ------------------------------------------------------------
+        # Phase 2: weighted keyword classification
+        # ------------------------------------------------------------
 
         scores: dict[str, float] = {}
 
@@ -885,26 +923,107 @@ class ClauseClassifierService:
             if score > 0:
                 scores[clause_type] = score
 
-        if scores:
+        # ------------------------------------------------------------
+        # Domain-specific scoring adjustments
+        # ------------------------------------------------------------
 
-            best_type = max(
-                scores,
-                key=scores.get,
+        text_lower = text.lower()
+
+        # Loan/security agreement specific rules.
+
+        if re.search(
+            r"\bloan\b.*\butili[sz]ed\b|\bloan proceeds\b",
+            text_lower,
+            re.IGNORECASE,
+        ):
+            scores["COVENANT"] = (
+                scores.get("COVENANT", 0.0)
+                + 8.0
             )
 
-        else:
+        if re.search(
+            r"\bborrower\b.*\bundertakes?\b",
+            text_lower,
+            re.IGNORECASE,
+        ):
+            scores["COVENANT"] = (
+                scores.get("COVENANT", 0.0)
+                + 10.0
+            )
 
-            best_type = "GENERAL"
+        if re.search(
+            r"\bstamp duty\b|\bstamp duties\b",
+            text_lower,
+            re.IGNORECASE,
+        ):
+            scores["TAXES"] = (
+                scores.get("TAXES", 0.0)
+                + 10.0
+            )
 
-        return clause.model_copy(
-            update={
-                "clause_type": best_type,
-            }
+        if re.search(
+            r"\bgrievance\s+redressal\b|\bnotice\s+board\b",
+            text_lower,
+            re.IGNORECASE,
+        ):
+            scores["NOTICES"] = (
+                scores.get("NOTICES", 0.0)
+                + 10.0
+            )
+
+        if re.search(
+            r"\bassign(?:s|ed|ment)?\b.*\bloan\b"
+            r"|\bloan\b.*\bassign(?:s|ed|ment)?\b"
+            r"|\bsell\s*/\s*assign\b",
+            text_lower,
+            re.IGNORECASE,
+        ):
+            scores["ASSIGNMENT"] = (
+                scores.get("ASSIGNMENT", 0.0)
+                + 15.0
+            )
+
+        if re.search(
+            r"\brepresent(?:s|ation)?\b"
+            r".*\b(?:warrant|confirm|declare)\b",
+            text_lower,
+            re.IGNORECASE,
+        ):
+            scores["REPRESENTATIONS_WARRANTIES"] = (
+                scores.get(
+                    "REPRESENTATIONS_WARRANTIES",
+                    0.0,
+                )
+                + 12.0
+            )
+
+        # ------------------------------------------------------------
+        # No match
+        # ------------------------------------------------------------
+
+        if not scores:
+            return cls._copy_with_type(
+                clause,
+                "GENERAL",
+            )
+
+        # ------------------------------------------------------------
+        # Choose best score.
+        # ------------------------------------------------------------
+
+        best_type = max(
+            scores,
+            key=scores.get,
         )
 
-    # ------------------------------------------------------------------
-    # Classify multiple clauses
-    # ------------------------------------------------------------------
+        return cls._copy_with_type(
+            clause,
+            best_type,
+        )
+
+    # ================================================================
+    # CLASSIFY MANY
+    # ================================================================
 
     @classmethod
     def classify_many(
